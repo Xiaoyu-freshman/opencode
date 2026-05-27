@@ -1,6 +1,6 @@
 ---
 mode: subagent
-description: Bounded implementation worker — can read and write files within the assigned worktree, but cannot run bash commands.
+description: Bounded implementation worker — can read, write, and edit files within the assigned worktree, but cannot run bash commands.
 permission:
   "*": deny
   read:
@@ -12,6 +12,7 @@ permission:
   list: allow
   edit:
     "*": allow
+  write: allow
   task: deny
   todowrite: deny
   question: deny

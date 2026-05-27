@@ -71,7 +71,7 @@ Use this tool to isolate worker tasks in separate worktrees.`,
         if (!args.task) throw new Error("task is required for create operation")
         const branch = branchName(args.task)
         const path = worktreePath(args.task)
-        const base = args.base ?? "main"
+        const base = args.base ?? "dev"
 
         runCommand(`mkdir -p "${worktreeBase()}"`)
         runCommand(`git worktree add -b "${branch}" "${path}" "${base}"`)
@@ -139,7 +139,8 @@ Use this tool to isolate worker tasks in separate worktrees.`,
         runCommand(`git worktree remove${forceFlag} "${worktreeDir}"`)
 
         try {
-          runCommand(`git branch -d "${args.branch}"`)
+          const branchFlag = args.force ? "-D" : "-d"
+          runCommand(`git branch ${branchFlag} "${args.branch}"`)
         } catch {
           // Branch may already be deleted or merged — not a hard error
         }

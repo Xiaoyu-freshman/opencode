@@ -63,7 +63,7 @@ You are the Bus agent. You own the full development lifecycle.
 
 Before spawning a worker:
 
-1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>", base: "main" })`
+1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>", base: "dev" })`
 2. Write the worker prompt including:
    - Worktree path
    - Files to read first
