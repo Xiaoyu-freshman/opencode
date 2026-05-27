@@ -75,7 +75,11 @@ Before spawning a worker:
    - Inspect the diff in the worktree
    - Run acceptance commands
    - Commit if acceptable, or send a correction prompt
-5. Clean up: `worktree.remove({ branch: "codex/<task>-YYYYMMDD" })`
+5. Merge to base branch:
+   - Switch to the base branch: `git checkout dev`
+   - Merge the worker branch: `git merge codex/<task>-YYYYMMDD --no-edit`
+   - Delete the worker branch: `git branch -d codex/<task>-YYYYMMDD`
+6. Clean up: `worktree.remove({ branch: "codex/<task>-YYYYMMDD" })`
 
 ## Security Rules
 

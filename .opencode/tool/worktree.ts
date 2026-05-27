@@ -27,7 +27,7 @@ function worktreePath(task: string): string {
 
 function runCommand(command: string): string {
   try {
-    return execSync(command, { encoding: "utf-8", timeout: 30000 })
+    return execSync(command, { encoding: "utf-8", timeout: 60000 })
   } catch (error: any) {
     throw new Error(`Command failed: ${command}\n${error.stderr || error.message}`)
   }
