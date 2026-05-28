@@ -577,6 +577,418 @@ interface ConfirmationConfig {
 4. **交互自然**：保持对话的连贯性和自然度
 5. **控制权保留**：用户可随时取消、修改、调整
 
+## 会话编排工具实现细节
+
+### 实现策略：分阶段实现
+
+#### 阶段 1：基于 task 工具（优化同步体验）
+
+**核心思路**：复用 OpenCode 现有的 task 工具创建子会话，通过优化提升用户体验。
+
+**同步阻塞的问题分析**：
+
+| 问题 | 影响程度 | 说明 |
+|------|----------|------|
+| 长时间等待 | 高 | 用户体验差，效率低 |
+| 无法取消 | 高 | 用户失去控制权 |
+| 超时风险 | 高 | 任务可能失败 |
+| 不支持长时间任务 | 高 | 限制使用场景 |
+
+**具体场景**：
+- 小型任务（5-10 分钟）：同步阻塞可接受
+- 中型任务（10-30 分钟）：体验差，可能超时
+- 大型任务（30+ 分钟）：不可接受，无法使用
+
+**阶段 1 优化方案**：
+
+```typescript
+// .opencode/tool/orchestrate.ts
+import { tool } from "@opencode-ai/plugin/tool"
+
+export default tool({
+  description: `自动协调实施总线
+
+功能：
+- 创建实施总线会话
+- 传递完整 prompt
+- 等待实施总线完成
+- 接收汇报
+- 返回分析结果`,
+  args: {
+    task: tool.schema.string().describe("任务描述"),
+    prompt: tool.schema.string().describe("完整实施 prompt"),
+    workers: tool.schema.array(tool.schema.string()).optional().describe("需要的 Worker 类型"),
+    timeout: tool.schema.number().optional().describe("超时时间（分钟），默认 30"),
+  },
+  async execute(args) {
+    const timeout = (args.timeout || 30) * 60 * 1000  // 转换为毫秒
+    const startTime = Date.now()
+    
+    // 1. 创建实施总线会话
+    showProgress("正在创建实施总线会话...")
+    const sessionID = await createBusSession(args.task)
+    
+    // 2. 传递 prompt
+    showProgress("正在传递实施 prompt...")
+    await sendPromptToSession(sessionID, args.prompt)
+    
+    // 3. 等待完成（带超时和进度提示）
+    showProgress("正在等待实施总线完成...")
+    let lastProgress = ""
+    
+    while (true) {
+      // 检查超时
+      if (Date.now() - startTime > timeout) {
+        return {
+          sessionID,
+          success: false,
+          error: "任务超时，请重试或拆分任务",
+          duration: (Date.now() - startTime) / 1000,
+        }
+      }
+      
+      // 获取状态
+      const status = await getSessionStatus(sessionID)
+      
+      // 更新进度
+      const progress = formatProgress(status)
+      if (progress !== lastProgress) {
+        showProgress(progress)
+        lastProgress = progress
+      }
+      
+      // 检查完成
+      if (status === "completed") {
+        const report = await getSessionResult(sessionID)
+        return {
+          sessionID,
+          success: true,
+          report,
+          duration: (Date.now() - startTime) / 1000,
+        }
+      }
+      
+      // 检查失败
+      if (status === "failed") {
+        const error = await getSessionError(sessionID)
+        return {
+          sessionID,
+          success: false,
+          error,
+          duration: (Date.now() - startTime) / 1000,
+        }
+      }
+      
+      // 等待 1 秒
+      await sleep(1000)
+    }
+  },
+})
+
+// 辅助函数
+function showProgress(message: string) {
+  // 显示进度提示
+  console.log(`[进度] ${message}`)
+}
+
+function formatProgress(status: any): string {
+  // 格式化进度信息
+  return `状态: ${status.state}, 进度: ${status.progress}%`
+}
+
+async function createBusSession(task: string): Promise<string> {
+  // 创建实施总线会话
+  // 调用 OpenCode 的 session API
+  return "session-id"
+}
+
+async function sendPromptToSession(sessionID: string, prompt: string): Promise<void> {
+  // 传递 prompt 到会话
+  // 调用 OpenCode 的 message API
+}
+
+async function getSessionStatus(sessionID: string): Promise<string> {
+  // 获取会话状态
+  return "running"
+}
+
+async function getSessionResult(sessionID: string): Promise<string> {
+  // 获取会话结果
+  return "执行完成"
+}
+
+async function getSessionError(sessionID: string): Promise<string> {
+  // 获取会话错误
+  return "执行失败"
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+```
+
+**优化点**：
+1. **进度提示**：实时显示执行进度
+2. **超时处理**：避免无限等待
+3. **错误处理**：捕获并返回错误信息
+4. **状态查询**：支持查看执行状态
+
+**阶段 1 局限性**：
+- 仍然是同步阻塞
+- 不支持并行执行
+- 不支持暂停恢复
+
+#### 阶段 2：异步任务队列（增强功能）
+
+**核心思路**：实现独立的异步任务队列系统，支持长时间任务和并行执行。
+
+```typescript
+// .opencode/tool/task-queue.ts
+import { tool } from "@opencode-ai/plugin/tool"
+
+interface Task {
+  id: string
+  status: "pending" | "running" | "completed" | "failed"
+  prompt: string
+  result?: string
+  error?: string
+  createdAt: Date
+  completedAt?: Date
+}
+
+const tasks = new Map<string, Task>()
+
+export default tool({
+  description: "管理异步任务队列",
+  args: {
+    action: tool.schema.enum(["submit", "status", "result", "cancel"]),
+    taskID: tool.schema.string().optional(),
+    prompt: tool.schema.string().optional(),
+  },
+  async execute(args) {
+    switch (args.action) {
+      case "submit":
+        return await submitTask(args.prompt!)
+      case "status":
+        return await getTaskStatus(args.taskID!)
+      case "result":
+        return await getTaskResult(args.taskID!)
+      case "cancel":
+        return await cancelTask(args.taskID!)
+    }
+  },
+})
+
+async function submitTask(prompt: string): Promise<{ taskID: string }> {
+  const taskID = generateTaskID()
+  tasks.set(taskID, {
+    id: taskID,
+    status: "pending",
+    prompt,
+    createdAt: new Date(),
+  })
+  
+  // 异步执行任务
+  executeTaskInBackground(taskID)
+  
+  return { taskID }
+}
+
+async function getTaskStatus(taskID: string): Promise<Task> {
+  const task = tasks.get(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  return task
+}
+
+async function getTaskResult(taskID: string): Promise<string> {
+  const task = tasks.get(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  if (task.status !== "completed") throw new Error(`任务 ${taskID} 未完成`)
+  return task.result!
+}
+
+async function cancelTask(taskID: string): Promise<void> {
+  const task = tasks.get(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  if (task.status === "completed") throw new Error(`任务 ${taskID} 已完成，无法取消`)
+  
+  // 取消任务
+  task.status = "failed"
+  task.error = "用户取消"
+  task.completedAt = new Date()
+}
+
+async function executeTaskInBackground(taskID: string): Promise<void> {
+  const task = tasks.get(taskID)!
+  task.status = "running"
+  
+  try {
+    // 执行任务
+    const result = await executeTask(task.prompt)
+    task.status = "completed"
+    task.result = result
+    task.completedAt = new Date()
+  } catch (error) {
+    task.status = "failed"
+    task.error = error.message
+    task.completedAt = new Date()
+  }
+}
+```
+
+**优点**：
+- 支持长时间任务
+- 支持并行执行
+- 支持取消操作
+- 状态可查询
+
+**缺点**：
+- 实现复杂
+- 需要状态管理
+- 需要持久化
+
+#### 阶段 3：事件驱动架构（完整方案）
+
+**核心思路**：基于事件总线实现异步通信，支持松耦合和可扩展性。
+
+```typescript
+// .opencode/tool/event-bus.ts
+import { tool } from "@opencode-ai/plugin/tool"
+
+interface Event {
+  type: "task.created" | "task.completed" | "task.failed"
+  taskID: string
+  data: any
+  timestamp: Date
+}
+
+const listeners = new Map<string, Function[]>()
+
+export function emit(event: Event) {
+  const handlers = listeners.get(event.type) || []
+  handlers.forEach(handler => handler(event))
+}
+
+export function on(type: string, handler: Function) {
+  const handlers = listeners.get(type) || []
+  handlers.push(handler)
+  listeners.set(type, handlers)
+}
+
+export default tool({
+  description: "事件总线工具",
+  args: {
+    action: tool.schema.enum(["emit", "on", "off"]),
+    type: tool.schema.string().optional(),
+    event: tool.schema.any().optional(),
+  },
+  async execute(args) {
+    switch (args.action) {
+      case "emit":
+        emit(args.event)
+        return "事件已发送"
+      case "on":
+        on(args.type!, () => {})
+        return "监听器已注册"
+      case "off":
+        return "监听器已移除"
+    }
+  },
+})
+```
+
+**优点**：
+- 松耦合
+- 可扩展
+- 支持并发
+
+**缺点**：
+- 实现复杂度高
+- 调试困难
+- 需要事件持久化
+
+### 实现优先级
+
+| 阶段 | 方案 | 优先级 | 说明 |
+|------|------|--------|------|
+| 1 | 基于 task 工具（优化同步） | 高 | 快速验证概念 |
+| 2 | 异步任务队列 | 中 | 增强功能 |
+| 3 | 事件驱动架构 | 低 | 完整方案 |
+
+### 接口设计
+
+#### 输入接口
+
+```typescript
+interface OrchestrateInput {
+  task: string           // 任务描述
+  prompt: string         // 完整实施 prompt
+  workers?: string[]     // 需要的 Worker 类型
+  timeout?: number       // 超时时间（分钟）
+}
+```
+
+#### 输出接口
+
+```typescript
+interface OrchestrateOutput {
+  sessionID: string      // 会话 ID
+  success: boolean       // 是否成功
+  report: string         // 执行汇报
+  duration: number       // 执行时长（秒）
+  error?: string         // 错误信息
+}
+```
+
+### 关键实现细节
+
+#### 1. 会话创建
+
+```typescript
+async function createBusSession(task: string): Promise<string> {
+  // 调用 OpenCode 的 session API 创建新会话
+  const session = await sdk.session.create({
+    title: `实施总线: ${task}`,
+    agent: "bus",
+    permission: [...],
+  })
+  return session.id
+}
+```
+
+#### 2. Prompt 传递
+
+```typescript
+async function sendPromptToSession(sessionID: string, prompt: string): Promise<void> {
+  // 调用 OpenCode 的 message API 发送消息
+  await sdk.message.create({
+    sessionID,
+    content: prompt,
+    role: "user",
+  })
+}
+```
+
+#### 3. 状态查询
+
+```typescript
+async function getSessionStatus(sessionID: string): Promise<string> {
+  // 调用 OpenCode 的 session API 获取状态
+  const session = await sdk.session.get(sessionID)
+  return session.status
+}
+```
+
+#### 4. 结果获取
+
+```typescript
+async function getSessionResult(sessionID: string): Promise<string> {
+  // 调用 OpenCode 的 message API 获取最后一条消息
+  const messages = await sdk.message.list(sessionID)
+  return messages[messages.length - 1].content
+}
+```
+
 ## 技术实现方案
 
 ### 方案 1：总体线代理 + 会话编排工具
