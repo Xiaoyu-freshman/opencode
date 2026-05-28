@@ -989,6 +989,250 @@ async function getSessionResult(sessionID: string): Promise<string> {
 }
 ```
 
+## 异步任务的状态管理
+
+### 状态定义
+
+#### 任务状态类型
+
+```typescript
+type TaskStatus = 
+  | "pending"    // 等待执行
+  | "running"    // 执行中
+  | "paused"     // 已暂停
+  | "completed"  // 已完成
+  | "failed"     // 已失败
+  | "cancelled"  // 已取消
+```
+
+#### 状态转换图
+
+```text
+                    ┌─────────────┐
+                    │   pending   │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+          ┌────────│   running   │────────┐
+          │        └──────┬──────┘        │
+          │               │               │
+          ▼               ▼               ▼
+   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+   │   paused    │ │  completed  │ │   failed    │
+   └──────┬──────┘ └─────────────┘ └─────────────┘
+          │
+          ▼
+   ┌─────────────┐
+   │  cancelled  │
+   └─────────────┘
+```
+
+#### 状态转换规则
+
+| 当前状态 | 可转换状态 | 说明 |
+|----------|------------|------|
+| pending | running, cancelled | 等待执行或取消 |
+| running | paused, completed, failed, cancelled | 执行中可暂停、完成、失败或取消 |
+| paused | running, cancelled | 暂停可恢复或取消 |
+| completed | - | 终态，不可转换 |
+| failed | - | 终态，不可转换 |
+| cancelled | - | 终态，不可转换 |
+
+### 实现方案
+
+#### 推荐方案：文件状态持久化
+
+**存储位置**：`~/.config/opencode/tasks/`
+
+**文件格式**：每个任务一个 JSON 文件
+
+```typescript
+// .opencode/tool/task-state.ts
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs"
+import { join } from "path"
+
+interface Task {
+  id: string
+  status: "pending" | "running" | "paused" | "completed" | "failed" | "cancelled"
+  prompt: string
+  result?: string
+  error?: string
+  progress: number
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+}
+
+const STATE_DIR = join(process.env.HOME || "~", ".config", "opencode", "tasks")
+
+// 确保目录存在
+function ensureDir() {
+  if (!existsSync(STATE_DIR)) {
+    mkdirSync(STATE_DIR, { recursive: true })
+  }
+}
+
+function getTaskPath(taskID: string): string {
+  return join(STATE_DIR, `${taskID}.json`)
+}
+
+export function getTask(taskID: string): Task | undefined {
+  ensureDir()
+  const path = getTaskPath(taskID)
+  if (!existsSync(path)) return undefined
+  
+  const data = readFileSync(path, "utf-8")
+  return JSON.parse(data)
+}
+
+export function saveTask(task: Task): void {
+  ensureDir()
+  const path = getTaskPath(task.id)
+  writeFileSync(path, JSON.stringify(task, null, 2))
+}
+
+export function updateTask(taskID: string, updates: Partial<Task>): void {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  
+  Object.assign(task, updates, { updatedAt: new Date().toISOString() })
+  
+  if (updates.status === "completed" || updates.status === "failed" || updates.status === "cancelled") {
+    task.completedAt = new Date().toISOString()
+  }
+  
+  saveTask(task)
+}
+
+export function deleteTask(taskID: string): void {
+  ensureDir()
+  const path = getTaskPath(taskID)
+  if (existsSync(path)) {
+    unlinkSync(path)
+  }
+}
+
+export function listTasks(): Task[] {
+  ensureDir()
+  const files = readdirSync(STATE_DIR)
+  return files
+    .filter(f => f.endsWith(".json"))
+    .map(f => {
+      const data = readFileSync(join(STATE_DIR, f), "utf-8")
+      return JSON.parse(data)
+    })
+}
+
+export function cleanupTasks(maxAge: number = 7 * 24 * 60 * 60 * 1000): void {
+  const tasks = listTasks()
+  const now = Date.now()
+  
+  for (const task of tasks) {
+    const createdAt = new Date(task.createdAt).getTime()
+    if (now - createdAt > maxAge) {
+      deleteTask(task.id)
+    }
+  }
+}
+```
+
+### 状态查询接口
+
+#### 查询单个任务
+
+```typescript
+export function getTaskStatus(taskID: string): Task {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  return task
+}
+```
+
+#### 查询所有任务
+
+```typescript
+export function listAllTasks(): Task[] {
+  return listTasks()
+}
+```
+
+#### 查询特定状态的任务
+
+```typescript
+export function listTasksByStatus(status: TaskStatus): Task[] {
+  return listTasks().filter(t => t.status === status)
+}
+```
+
+### 状态同步机制
+
+#### 轮询方式
+
+```typescript
+export async function waitForTask(
+  taskID: string, 
+  interval: number = 1000,
+  timeout: number = 30 * 60 * 1000
+): Promise<Task> {
+  const startTime = Date.now()
+  
+  while (true) {
+    const task = getTask(taskID)
+    if (!task) throw new Error(`任务 ${taskID} 不存在`)
+    
+    if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+      return task
+    }
+    
+    if (Date.now() - startTime > timeout) {
+      throw new Error("等待超时")
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, interval))
+  }
+}
+```
+
+### 清理机制
+
+#### 自动清理过期任务
+
+```typescript
+export function cleanupExpiredTasks(maxAgeDays: number = 7): void {
+  const tasks = listTasks()
+  const now = Date.now()
+  const maxAge = maxAgeDays * 24 * 60 * 60 * 1000
+  
+  for (const task of tasks) {
+    const createdAt = new Date(task.createdAt).getTime()
+    if (now - createdAt > maxAge) {
+      deleteTask(task.id)
+      console.log(`已清理过期任务: ${task.id}`)
+    }
+  }
+}
+```
+
+#### 手动清理
+
+```typescript
+export function cleanupAllTasks(): void {
+  const tasks = listTasks()
+  for (const task of tasks) {
+    deleteTask(task.id)
+  }
+  console.log(`已清理所有任务: ${tasks.length} 个`)
+}
+```
+
+### 设计要点
+
+1. **文件持久化**：状态保存到文件，支持进程重启
+2. **简单实现**：快速验证概念，降低复杂度
+3. **易于调试**：JSON 文件可直接查看和编辑
+4. **自动清理**：定期清理过期任务，避免磁盘占用
+
 ## 技术实现方案
 
 ### 方案 1：总体线代理 + 会话编排工具
