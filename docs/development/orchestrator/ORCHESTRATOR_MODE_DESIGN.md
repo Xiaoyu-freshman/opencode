@@ -2158,6 +2158,717 @@ export function ErrorDisplay(props: ErrorDisplayProps) {
 4. **及时性**：交互反馈及时，用户操作有明确响应
 5. **可操作性**：提供具体操作按钮，用户可直接处理问题
 
+## 性能和资源管理
+
+### 性能问题分析
+
+#### 1. 多会话并发的资源消耗
+
+**问题**：同时运行多个会话会消耗大量资源
+
+```text
+会话 1：创建 i18n 配置
+  - 内存：50MB
+  - CPU：10%
+  - 网络：100KB/s
+
+会话 2：更新组件
+  - 内存：80MB
+  - CPU：15%
+  - 网络：200KB/s
+
+会话 3：添加语言切换 UI
+  - 内存：60MB
+  - CPU：12%
+  - 网络：150KB/s
+
+总计：
+  - 内存：190MB
+  - CPU：37%
+  - 网络：450KB/s
+```
+
+#### 2. 长时间任务的内存管理
+
+**问题**：长时间运行的任务会持续占用内存
+
+```text
+任务开始：内存 50MB
+  ↓
+执行 10 分钟：内存 80MB（中间结果）
+  ↓
+执行 30 分钟：内存 120MB（累积数据）
+  ↓
+执行 1 小时：内存 200MB（可能溢出）
+```
+
+#### 3. 任务队列的存储和清理
+
+**问题**：任务队列会无限增长
+
+```text
+提交任务 1：存储 1KB
+提交任务 2：存储 2KB
+提交任务 3：存储 3KB
+...
+提交任务 1000：存储 1000KB
+
+总计：500MB（如果不清理）
+```
+
+#### 4. 并发控制和限流
+
+**问题**：没有并发控制会导致资源耗尽
+
+```text
+无并发控制：
+  - 同时启动 10 个任务
+  - 每个任务消耗 50MB 内存
+  - 总计：500MB 内存
+  - 系统崩溃
+
+有并发控制：
+  - 最多同时运行 3 个任务
+  - 其他任务排队等待
+  - 总计：150MB 内存
+  - 系统稳定
+```
+
+### 资源管理方案
+
+#### 方案 1：并发控制
+
+```typescript
+interface ConcurrencyConfig {
+  maxConcurrent: number  // 最大并发数
+  maxQueued: number      // 最大排队数
+  timeout: number        // 任务超时时间（毫秒）
+}
+
+class ConcurrencyManager {
+  private running = new Map<string, Promise<any>>()
+  private queue: Array<{ task: () => Promise<any>; resolve: Function; reject: Function }> = []
+  private config: ConcurrencyConfig
+  
+  constructor(config: ConcurrencyConfig) {
+    this.config = config
+  }
+  
+  async execute<T>(taskID: string, task: () => Promise<T>): Promise<T> {
+    // 检查是否超过最大并发数
+    if (this.running.size >= this.config.maxConcurrent) {
+      // 检查是否超过最大排队数
+      if (this.queue.length >= this.config.maxQueued) {
+        throw new Error("任务队列已满，请稍后重试")
+      }
+      
+      // 排队等待
+      return new Promise((resolve, reject) => {
+        this.queue.push({ task, resolve, reject })
+      })
+    }
+    
+    // 执行任务
+    return this.runTask(taskID, task)
+  }
+  
+  private async runTask<T>(taskID: string, task: () => Promise<T>): Promise<T> {
+    const promise = task()
+    this.running.set(taskID, promise)
+    
+    try {
+      const result = await promise
+      return result
+    } finally {
+      this.running.delete(taskID)
+      this.processQueue()
+    }
+  }
+  
+  private processQueue() {
+    if (this.queue.length > 0 && this.running.size < this.config.maxConcurrent) {
+      const { task, resolve, reject } = this.queue.shift()!
+      this.runTask(generateTaskID(), task).then(resolve).catch(reject)
+    }
+  }
+  
+  getStatus() {
+    return {
+      running: this.running.size,
+      queued: this.queue.length,
+      maxConcurrent: this.config.maxConcurrent,
+      maxQueued: this.config.maxQueued,
+    }
+  }
+}
+```
+
+**使用方式**：
+
+```typescript
+const concurrencyManager = new ConcurrencyManager({
+  maxConcurrent: 3,      // 最多同时运行 3 个任务
+  maxQueued: 10,         // 最多排队 10 个任务
+  timeout: 30 * 60 * 1000, // 任务超时 30 分钟
+})
+```
+
+#### 方案 2：内存管理
+
+```typescript
+interface MemoryConfig {
+  maxMemoryMB: number       // 最大内存限制（MB）
+  warningThreshold: number  // 警告阈值（百分比）
+  cleanupInterval: number   // 清理间隔（毫秒）
+}
+
+class MemoryManager {
+  private config: MemoryConfig
+  private cleanupTimer?: NodeJS.Timer
+  
+  constructor(config: MemoryConfig) {
+    this.config = config
+    this.startCleanup()
+  }
+  
+  private startCleanup() {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanup()
+    }, this.config.cleanupInterval)
+  }
+  
+  private cleanup() {
+    const usage = this.getMemoryUsage()
+    
+    if (usage.percentage > this.config.warningThreshold) {
+      console.warn(`内存使用率过高：${usage.percentage}%`)
+      this.forceCleanup()
+    }
+  }
+  
+  private forceCleanup() {
+    // 清理已完成的任务
+    this.cleanupCompletedTasks()
+    
+    // 清理过期的日志
+    this.cleanupExpiredLogs()
+    
+    // 清理临时文件
+    this.cleanupTempFiles()
+    
+    // 触发垃圾回收
+    if (global.gc) {
+      global.gc()
+    }
+  }
+  
+  getMemoryUsage() {
+    const used = process.memoryUsage()
+    const total = this.config.maxMemoryMB * 1024 * 1024
+    
+    return {
+      heapUsed: used.heapUsed,
+      heapTotal: used.heapTotal,
+      rss: used.rss,
+      external: used.external,
+      percentage: Math.round((used.heapUsed / total) * 100),
+    }
+  }
+  
+  private cleanupCompletedTasks() {
+    const tasks = listTasks()
+    const completedTasks = tasks.filter(t => 
+      t.status === "completed" || t.status === "failed" || t.status === "cancelled"
+    )
+    
+    for (const task of completedTasks) {
+      // 保留最近 1 小时的任务
+      const completedAt = new Date(task.completedAt!).getTime()
+      if (Date.now() - completedAt > 60 * 60 * 1000) {
+        deleteTask(task.id)
+      }
+    }
+  }
+  
+  private cleanupExpiredLogs() {
+    // 清理超过 24 小时的日志
+    const maxAge = 24 * 60 * 60 * 1000
+    cleanupLogs(maxAge)
+  }
+  
+  private cleanupTempFiles() {
+    // 清理临时文件
+    cleanupTempDir()
+  }
+  
+  destroy() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer)
+    }
+  }
+}
+```
+
+**使用方式**：
+
+```typescript
+const memoryManager = new MemoryManager({
+  maxMemoryMB: 512,           // 最大 512MB
+  warningThreshold: 80,       // 80% 时警告
+  cleanupInterval: 5 * 60 * 1000, // 每 5 分钟清理一次
+})
+```
+
+#### 方案 3：存储管理
+
+```typescript
+interface StorageConfig {
+  maxStorageMB: number       // 最大存储限制（MB）
+  maxTasks: number           // 最大任务数
+  maxTaskAge: number         // 最大任务年龄（毫秒）
+  cleanupInterval: number    // 清理间隔（毫秒）
+}
+
+class StorageManager {
+  private config: StorageConfig
+  private cleanupTimer?: NodeJS.Timer
+  
+  constructor(config: StorageConfig) {
+    this.config = config
+    this.startCleanup()
+  }
+  
+  private startCleanup() {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanup()
+    }, this.config.cleanupInterval)
+  }
+  
+  private cleanup() {
+    // 清理过期任务
+    this.cleanupExpiredTasks()
+    
+    // 清理超出限制的任务
+    this.cleanupExcessTasks()
+    
+    // 清理大文件
+    this.cleanupLargeFiles()
+  }
+  
+  private cleanupExpiredTasks() {
+    const tasks = listTasks()
+    const now = Date.now()
+    
+    for (const task of tasks) {
+      const createdAt = new Date(task.createdAt).getTime()
+      if (now - createdAt > this.config.maxTaskAge) {
+        deleteTask(task.id)
+        console.log(`已清理过期任务：${task.id}`)
+      }
+    }
+  }
+  
+  private cleanupExcessTasks() {
+    const tasks = listTasks()
+    
+    if (tasks.length > this.config.maxTasks) {
+      // 按创建时间排序，删除最旧的任务
+      const sortedTasks = tasks.sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+      
+      const tasksToDelete = sortedTasks.slice(0, tasks.length - this.config.maxTasks)
+      
+      for (const task of tasksToDelete) {
+        deleteTask(task.id)
+        console.log(`已清理超出限制的任务：${task.id}`)
+      }
+    }
+  }
+  
+  private cleanupLargeFiles() {
+    // 检查并清理大文件
+    const tasks = listTasks()
+    
+    for (const task of tasks) {
+      const taskPath = getTaskPath(task.id)
+      const stats = require("fs").statSync(taskPath)
+      
+      // 如果任务文件超过 1MB，清理结果
+      if (stats.size > 1024 * 1024) {
+        updateTask(task.id, { result: undefined })
+        console.log(`已清理大文件任务：${task.id}`)
+      }
+    }
+  }
+  
+  getStorageUsage() {
+    const tasks = listTasks()
+    const totalSize = tasks.reduce((sum, task) => {
+      const taskPath = getTaskPath(task.id)
+      const stats = require("fs").statSync(taskPath)
+      return sum + stats.size
+    }, 0)
+    
+    return {
+      taskCount: tasks.length,
+      totalSize,
+      totalSizeMB: Math.round(totalSize / (1024 * 1024)),
+      maxStorageMB: this.config.maxStorageMB,
+      percentage: Math.round((totalSize / (this.config.maxStorageMB * 1024 * 1024)) * 100),
+    }
+  }
+  
+  destroy() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer)
+    }
+  }
+}
+```
+
+**使用方式**：
+
+```typescript
+const storageManager = new StorageManager({
+  maxStorageMB: 100,          // 最大 100MB
+  maxTasks: 1000,             // 最大 1000 个任务
+  maxTaskAge: 7 * 24 * 60 * 60 * 1000, // 最大 7 天
+  cleanupInterval: 60 * 60 * 1000,      // 每小时清理一次
+})
+```
+
+#### 方案 4：性能监控
+
+```typescript
+interface PerformanceMetrics {
+  taskCount: number           // 任务总数
+  runningTasks: number        // 运行中任务数
+  queuedTasks: number         // 排队中任务数
+  completedTasks: number      // 完成任务数
+  failedTasks: number         // 失败任务数
+  averageDuration: number     // 平均执行时长（秒）
+  memoryUsage: number         // 内存使用率（%）
+  storageUsage: number        // 存储使用率（%）
+  cpuUsage: number            // CPU 使用率（%）
+}
+
+class PerformanceMonitor {
+  private metrics: PerformanceMetrics
+  private history: Array<{ timestamp: Date; metrics: PerformanceMetrics }> = []
+  private maxHistory = 1000
+  
+  constructor() {
+    this.metrics = this.collectMetrics()
+    this.startMonitoring()
+  }
+  
+  private startMonitoring() {
+    setInterval(() => {
+      this.metrics = this.collectMetrics()
+      this.history.push({
+        timestamp: new Date(),
+        metrics: { ...this.metrics },
+      })
+      
+      // 保持历史记录在限制范围内
+      if (this.history.length > this.maxHistory) {
+        this.history.shift()
+      }
+      
+      // 检查性能问题
+      this.checkPerformanceIssues()
+    }, 10000)
+  }
+  
+  private collectMetrics(): PerformanceMetrics {
+    const tasks = listTasks()
+    const memoryUsage = process.memoryUsage()
+    
+    return {
+      taskCount: tasks.length,
+      runningTasks: tasks.filter(t => t.status === "running").length,
+      queuedTasks: tasks.filter(t => t.status === "pending").length,
+      completedTasks: tasks.filter(t => t.status === "completed").length,
+      failedTasks: tasks.filter(t => t.status === "failed").length,
+      averageDuration: this.calculateAverageDuration(tasks),
+      memoryUsage: Math.round((memoryUsage.heapUsed / memoryUsage.heapTotal) * 100),
+      storageUsage: this.calculateStorageUsage(),
+      cpuUsage: this.calculateCpuUsage(),
+    }
+  }
+  
+  private calculateAverageDuration(tasks: Task[]): number {
+    const completedTasks = tasks.filter(t => t.status === "completed" && t.completedAt)
+    if (completedTasks.length === 0) return 0
+    
+    const totalDuration = completedTasks.reduce((sum, task) => {
+      const start = new Date(task.createdAt).getTime()
+      const end = new Date(task.completedAt!).getTime()
+      return sum + (end - start)
+    }, 0)
+    
+    return Math.round(totalDuration / completedTasks.length / 1000)
+  }
+  
+  private calculateStorageUsage(): number {
+    // 计算存储使用率
+    return 0
+  }
+  
+  private calculateCpuUsage(): number {
+    // 计算 CPU 使用率
+    return 0
+  }
+  
+  private checkPerformanceIssues() {
+    // 检查内存使用率
+    if (this.metrics.memoryUsage > 90) {
+      console.warn("内存使用率过高：" + this.metrics.memoryUsage + "%")
+    }
+    
+    // 检查存储使用率
+    if (this.metrics.storageUsage > 90) {
+      console.warn("存储使用率过高：" + this.metrics.storageUsage + "%")
+    }
+    
+    // 检查排队任务数
+    if (this.metrics.queuedTasks > 50) {
+      console.warn("排队任务过多：" + this.metrics.queuedTasks)
+    }
+    
+    // 检查失败任务数
+    if (this.metrics.failedTasks > 10) {
+      console.warn("失败任务过多：" + this.metrics.failedTasks)
+    }
+  }
+  
+  getMetrics(): PerformanceMetrics {
+    return { ...this.metrics }
+  }
+  
+  getHistory(): Array<{ timestamp: Date; metrics: PerformanceMetrics }> {
+    return [...this.history]
+  }
+  
+  getReport() {
+    const metrics = this.getMetrics()
+    const history = this.getHistory()
+    
+    return {
+      current: metrics,
+      trends: {
+        taskCount: this.calculateTrend(history.map(h => h.metrics.taskCount)),
+        memoryUsage: this.calculateTrend(history.map(h => h.metrics.memoryUsage)),
+        storageUsage: this.calculateTrend(history.map(h => h.metrics.storageUsage)),
+      },
+      recommendations: this.generateRecommendations(metrics),
+    }
+  }
+  
+  private calculateTrend(values: number[]): "increasing" | "decreasing" | "stable" {
+    if (values.length < 2) return "stable"
+    
+    const first = values[0]
+    const last = values[values.length - 1]
+    const change = ((last - first) / first) * 100
+    
+    if (change > 10) return "increasing"
+    if (change < -10) return "decreasing"
+    return "stable"
+  }
+  
+  private generateRecommendations(metrics: PerformanceMetrics): string[] {
+    const recommendations: string[] = []
+    
+    if (metrics.memoryUsage > 80) {
+      recommendations.push("建议减少并发任务数或增加内存限制")
+    }
+    
+    if (metrics.storageUsage > 80) {
+      recommendations.push("建议清理过期任务或增加存储限制")
+    }
+    
+    if (metrics.queuedTasks > 20) {
+      recommendations.push("建议增加并发任务数或优化任务执行效率")
+    }
+    
+    if (metrics.failedTasks > 5) {
+      recommendations.push("建议检查失败原因并优化错误处理")
+    }
+    
+    return recommendations
+  }
+}
+```
+
+**使用方式**：
+
+```typescript
+const performanceMonitor = new PerformanceMonitor()
+
+// 定期输出性能报告
+setInterval(() => {
+  const report = performanceMonitor.getReport()
+  console.log("性能报告：", report)
+}, 60000)
+```
+
+### 资源管理策略
+
+#### 策略 1：动态并发控制
+
+```typescript
+class DynamicConcurrencyManager extends ConcurrencyManager {
+  private performanceMonitor: PerformanceMonitor
+  
+  constructor(config: ConcurrencyConfig, performanceMonitor: PerformanceMonitor) {
+    super(config)
+    this.performanceMonitor = performanceMonitor
+  }
+  
+  private adjustConcurrency() {
+    const metrics = this.performanceMonitor.getMetrics()
+    
+    // 根据内存使用率调整并发数
+    if (metrics.memoryUsage > 80) {
+      this.config.maxConcurrent = Math.max(1, this.config.maxConcurrent - 1)
+      console.log(`内存使用率过高，减少并发数至 ${this.config.maxConcurrent}`)
+    } else if (metrics.memoryUsage < 50 && this.config.maxConcurrent < 5) {
+      this.config.maxConcurrent += 1
+      console.log(`内存使用率正常，增加并发数至 ${this.config.maxConcurrent}`)
+    }
+    
+    // 根据 CPU 使用率调整并发数
+    if (metrics.cpuUsage > 80) {
+      this.config.maxConcurrent = Math.max(1, this.config.maxConcurrent - 1)
+      console.log(`CPU 使用率过高，减少并发数至 ${this.config.maxConcurrent}`)
+    }
+  }
+}
+```
+
+#### 策略 2：优先级队列
+
+```typescript
+interface PriorityTask {
+  task: () => Promise<any>
+  priority: number  // 优先级（1-10，10 最高）
+  resolve: Function
+  reject: Function
+}
+
+class PriorityQueue {
+  private queue: PriorityTask[] = []
+  
+  enqueue(task: PriorityTask) {
+    this.queue.push(task)
+    this.queue.sort((a, b) => b.priority - a.priority)
+  }
+  
+  dequeue(): PriorityTask | undefined {
+    return this.queue.shift()
+  }
+  
+  size(): number {
+    return this.queue.length
+  }
+  
+  clear() {
+    this.queue = []
+  }
+}
+```
+
+#### 策略 3：资源预留
+
+```typescript
+interface ResourceReservation {
+  memoryMB: number
+  cpuPercent: number
+  storageMB: number
+}
+
+class ResourceManager {
+  private reservations = new Map<string, ResourceReservation>()
+  private totalResources: ResourceReservation
+  
+  constructor(totalResources: ResourceReservation) {
+    this.totalResources = totalResources
+  }
+  
+  reserve(taskID: string, resources: ResourceReservation): boolean {
+    const available = this.getAvailableResources()
+    
+    if (
+      resources.memoryMB > available.memoryMB ||
+      resources.cpuPercent > available.cpuPercent ||
+      resources.storageMB > available.storageMB
+    ) {
+      return false
+    }
+    
+    this.reservations.set(taskID, resources)
+    return true
+  }
+  
+  release(taskID: string) {
+    this.reservations.delete(taskID)
+  }
+  
+  getAvailableResources(): ResourceReservation {
+    const used = this.getUsedResources()
+    
+    return {
+      memoryMB: this.totalResources.memoryMB - used.memoryMB,
+      cpuPercent: this.totalResources.cpuPercent - used.cpuPercent,
+      storageMB: this.totalResources.storageMB - used.storageMB,
+    }
+  }
+  
+  private getUsedResources(): ResourceReservation {
+    const used: ResourceReservation = {
+      memoryMB: 0,
+      cpuPercent: 0,
+      storageMB: 0,
+    }
+    
+    for (const reservation of this.reservations.values()) {
+      used.memoryMB += reservation.memoryMB
+      used.cpuPercent += reservation.cpuPercent
+      used.storageMB += reservation.storageMB
+    }
+    
+    return used
+  }
+}
+```
+
+### 实现优先级
+
+**阶段 1**：实现基础资源管理
+1. 并发控制（限制同时运行的任务数）
+2. 内存监控（定期检查内存使用）
+3. 存储清理（定期清理过期任务）
+
+**阶段 2**：增强性能监控
+1. 性能指标收集
+2. 性能报告生成
+3. 性能问题告警
+
+**阶段 3**：实现高级资源管理
+1. 动态并发控制
+2. 优先级队列
+3. 资源预留
+
+### 设计要点
+
+1. **并发控制**：限制同时运行的任务数，避免资源耗尽
+2. **内存管理**：定期清理已完成任务，避免内存泄漏
+3. **存储管理**：清理过期任务和大文件，避免磁盘占满
+4. **性能监控**：实时监控资源使用，及时发现和处理问题
+5. **动态调整**：根据资源使用情况动态调整并发策略
+
 ## 技术实现方案
 
 ### 方案 1：总体线代理 + 会话编排工具
