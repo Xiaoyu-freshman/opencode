@@ -150,7 +150,7 @@ All tests pass. The Bus-Worker architecture is functional and ready for use. Fou
 
 ---
 
-## Verification Run (2026-05-27)
+## Verification Run (2026-05-28)
 
 ### Environment Check
 
@@ -160,7 +160,7 @@ All tests pass. The Bus-Worker architecture is functional and ready for use. Fou
 | `.opencode/agent/bus-worker-implementation.md` | ✓ | Mode: subagent, write: allow present |
 | `.opencode/agent/bus-worker-diagnostic.md` | ✓ | Mode: subagent, bash: allow, edit: deny |
 | `.opencode/agent/bus-worker-full.md` | ✓ | Mode: subagent, all permissions |
-| `.opencode/tool/worktree.ts` | ✓ | Default base: "dev", force uses -D |
+| `.opencode/tool/worktree.ts` | ✓ | Dynamic default branch detection |
 | `.opencode/prompt/worker-*.md` | ✓ | All 3 prompt templates exist |
 
 ### Previous Fixes Verified
@@ -172,7 +172,7 @@ All tests pass. The Bus-Worker architecture is functional and ready for use. Fou
 
 ### Git Status
 
-- Branch: `dev` (ahead 4, clean)
+- Branch: `dev` (2c4f8f23c)
 - No test worktrees present
 - No test branches present
 
@@ -195,3 +195,23 @@ All worktree lifecycle tests pass:
 - Event.Ready after bootstrap ✓
 - List with parent folder detection ✓
 - Remove edge cases ✓
+
+### Desktop GUI Test Status
+
+Desktop dev server started successfully:
+- Version: 1.15.11
+- Sidecar: http://127.0.0.1:58876
+- Electron: v42.2.0
+
+**Note**: GUI interaction tests require manual execution in the Desktop window.
+
+### Remaining Manual Tests
+
+| Task | Status | Notes |
+|------|--------|-------|
+| A. Agent selection (@ menu) | Pending | Need GUI interaction |
+| B. Simple task execution | Pending | Need GUI interaction |
+| C. Worker invocation | Pending | Need GUI interaction |
+| D. Permission boundaries | Pending | Need GUI interaction |
+| E. Full workflow | Pending | Need GUI interaction |
+| F. Error handling | Pending | Need GUI interaction |
