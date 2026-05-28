@@ -1675,6 +1675,489 @@ async function executeWithErrorHandling<T>(
 4. **错误通知**：及时通知用户，提供清晰的错误信息
 5. **优雅降级**：允许部分成功，继续执行其他任务
 
+## 用户体验优化
+
+### 核心要素
+
+#### 1. 进度显示
+
+**数据结构**：
+
+```typescript
+interface ProgressDisplay {
+  // 整体进度
+  overall: {
+    total: number        // 总任务数
+    completed: number    // 已完成数
+    running: number      // 执行中数
+    failed: number       // 失败数
+    percentage: number   // 完成百分比
+  }
+  
+  // 当前任务进度
+  current: {
+    taskName: string     // 任务名称
+    status: string       // 任务状态
+    progress: number     // 任务进度（0-100）
+    startTime: Date      // 开始时间
+    estimatedTime: number // 预计剩余时间（秒）
+  }
+  
+  // 历史任务
+  history: Array<{
+    taskName: string
+    status: "completed" | "failed" | "cancelled"
+    duration: number     // 执行时长（秒）
+    result?: string      // 执行结果
+  }>
+}
+```
+
+**显示方式**：
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 执行进度                                                    │
+├─────────────────────────────────────────────────────────────┤
+│ 整体进度：3/5 任务完成 (60%)                                │
+│ ████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
+├─────────────────────────────────────────────────────────────┤
+│ 当前任务：更新组件支持多语言                                │
+│ 状态：执行中                                                │
+│ 进度：40%                                                   │
+│ ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
+│ 预计剩余：3 分钟                                            │
+├─────────────────────────────────────────────────────────────┤
+│ 历史任务：                                                  │
+│ ✓ 创建 i18n 配置 (2 分钟)                                  │
+│ ✓ 创建翻译文件 (1 分钟)                                    │
+│ ● 更新组件支持多语言 (进行中)                              │
+│ ○ 添加语言切换 UI (等待中)                                 │
+│ ○ 测试多语言功能 (等待中)                                  │
+├─────────────────────────────────────────────────────────────┤
+│ [取消] [暂停] [查看详情]                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 2. 日志展示
+
+**数据结构**：
+
+```typescript
+interface LogEntry {
+  timestamp: Date        // 时间戳
+  level: "info" | "warn" | "error" | "debug"  // 日志级别
+  source: string         // 来源（orchestrator/bus/worker）
+  message: string        // 日志内容
+  details?: any          // 详细信息
+}
+
+interface LogDisplay {
+  entries: LogEntry[]
+  filters: {
+    level: string[]      // 过滤级别
+    source: string[]     // 过滤来源
+    timeRange: [Date, Date] // 时间范围
+  }
+  autoScroll: boolean    // 自动滚动
+  maxEntries: number     // 最大条目数
+}
+```
+
+**显示方式**：
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 执行日志                                                    │
+├─────────────────────────────────────────────────────────────┤
+│ [14:30:15] [INFO] [orchestrator] 开始执行任务 1            │
+│ [14:30:16] [INFO] [bus] 创建实施总线会话                    │
+│ [14:30:17] [INFO] [bus] 传递 prompt                        │
+│ [14:30:18] [INFO] [worker] 开始执行：创建 i18n 配置        │
+│ [14:30:19] [INFO] [worker] 创建 src/i18n/config.ts         │
+│ [14:30:20] [INFO] [worker] 创建 src/i18n/locales/zh.json   │
+│ [14:30:21] [INFO] [worker] 创建 src/i18n/locales/en.json   │
+│ [14:30:22] [INFO] [worker] 任务 1 完成                      │
+│ [14:30:23] [INFO] [orchestrator] 开始执行任务 2            │
+│ [14:30:24] [WARN] [worker] 文件已存在，将覆盖              │
+│ [14:30:25] [INFO] [worker] 更新 src/components/Header.tsx  │
+├─────────────────────────────────────────────────────────────┤
+│ [过滤器] [INFO] [WARN] [ERROR] [全部来源]                  │
+│ [自动滚动] [清空] [导出]                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 3. 确认界面
+
+**数据结构**：
+
+```typescript
+interface ConfirmDialog {
+  title: string          // 标题
+  message: string        // 消息
+  details?: string       // 详细说明
+  options: Array<{
+    label: string        // 选项标签
+    value: string        // 选项值
+    description?: string // 选项说明
+    variant?: "primary" | "secondary" | "danger"  // 样式
+  }>
+  timeout?: number       // 超时时间（秒）
+  defaultValue?: string  // 默认值
+}
+```
+
+**显示方式**：
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 确认方案                                                    │
+├─────────────────────────────────────────────────────────────┤
+│ 方案分析                                                    │
+│                                                             │
+│ 需求理解：                                                  │
+│ - 核心需求：支持多语言界面                                  │
+│ - 关键问题：如何管理翻译文件，如何切换语言                  │
+│ - 约束条件：不影响现有功能                                  │
+│                                                             │
+│ 技术方案：                                                  │
+│ - 方案名称：i18n 多语言支持                                 │
+│ - 技术选型：react-i18next                                   │
+│ - 架构设计：                                                │
+│   1. 创建 i18n 配置                                         │
+│   2. 创建翻译文件                                           │
+│   3. 更新组件支持多语言                                     │
+│   4. 添加语言切换 UI                                        │
+│                                                             │
+│ 任务分解：                                                  │
+│ - 任务 1：创建 i18n 配置和翻译文件（Worker: implementation）│
+│ - 任务 2：更新组件支持多语言（Worker: implementation）      │
+│ - 任务 3：添加语言切换 UI（Worker: implementation）         │
+│                                                             │
+│ 预计时间：                                                  │
+│ - 任务 1：5 分钟                                            │
+│ - 任务 2：10 分钟                                           │
+│ - 任务 3：5 分钟                                            │
+│ - 总计：20 分钟                                             │
+├─────────────────────────────────────────────────────────────┤
+│ [确认方案] [修改方案] [取消]                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 4. 错误提示
+
+**数据结构**：
+
+```typescript
+interface ErrorDisplay {
+  title: string          // 错误标题
+  message: string        // 错误消息
+  code?: string          // 错误代码
+  details?: string       // 详细说明
+  suggestions?: string[] // 建议操作
+  actions?: Array<{
+    label: string        // 操作标签
+    action: string       // 操作类型
+    description?: string // 操作说明
+  }>
+}
+```
+
+**显示方式**：
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ 错误：任务执行失败                                          │
+├─────────────────────────────────────────────────────────────┤
+│ 错误信息：                                                  │
+│ Worker 执行失败：无法创建文件 src/i18n/config.ts            │
+│                                                             │
+│ 错误代码：WORKER_FAILED                                     │
+│                                                             │
+│ 详细说明：                                                  │
+│ 文件系统权限不足，无法写入目标目录。                        │
+│                                                             │
+│ 建议操作：                                                  │
+│ 1. 检查目录权限                                             │
+│ 2. 使用管理员权限运行                                       │
+│ 3. 选择其他目录                                             │
+├─────────────────────────────────────────────────────────────┤
+│ [重试] [跳过] [修改方案] [查看详情]                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 5. 交互反馈
+
+**数据结构**：
+
+```typescript
+interface Feedback {
+  type: "success" | "error" | "warning" | "info"  // 反馈类型
+  title: string          // 标题
+  message: string        // 消息
+  duration?: number      // 显示时长（毫秒）
+  actions?: Array<{
+    label: string        // 操作标签
+    action: () => void   // 操作函数
+  }>
+}
+```
+
+**显示方式**：
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ ✓ 方案已确认                                                │
+│ 开始执行任务...                                             │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ ⚠ 任务已取消                                                │
+│ 已保留任务 1 的结果                                         │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ ✗ 任务执行失败                                              │
+│ Worker 执行失败：无法创建文件                               │
+│ [重试] [跳过] [查看详情]                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 组件实现
+
+#### 1. 进度条组件
+
+```typescript
+// .opencode/components/progress-bar.tsx
+interface ProgressBarProps {
+  value: number          // 当前值
+  max: number            // 最大值
+  label?: string         // 标签
+  showPercentage?: boolean // 显示百分比
+  showValue?: boolean    // 显示数值
+  variant?: "default" | "success" | "error" | "warning"  // 样式
+  animated?: boolean     // 是否动画
+}
+
+export function ProgressBar(props: ProgressBarProps) {
+  const percentage = Math.round((props.value / props.max) * 100)
+  
+  return (
+    <div class="progress-bar">
+      {props.label && <div class="progress-bar-label">{props.label}</div>}
+      <div class="progress-bar-track">
+        <div 
+          class={`progress-bar-fill ${props.variant || 'default'}`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div class="progress-bar-info">
+        {props.showPercentage && <span>{percentage}%</span>}
+        {props.showValue && <span>{props.value}/{props.max}</span>}
+      </div>
+    </div>
+  )
+}
+```
+
+#### 2. 日志组件
+
+```typescript
+// .opencode/components/log-viewer.tsx
+interface LogViewerProps {
+  entries: LogEntry[]
+  filters?: {
+    level?: string[]
+    source?: string[]
+  }
+  autoScroll?: boolean
+  maxEntries?: number
+  onClear?: () => void
+  onExport?: () => void
+}
+
+export function LogViewer(props: LogViewerProps) {
+  const filteredEntries = props.entries.filter(entry => {
+    if (props.filters?.level && !props.filters.level.includes(entry.level)) {
+      return false
+    }
+    if (props.filters?.source && !props.filters.source.includes(entry.source)) {
+      return false
+    }
+    return true
+  })
+  
+  return (
+    <div class="log-viewer">
+      <div class="log-viewer-header">
+        <span>执行日志</span>
+        <div class="log-viewer-actions">
+          <button onClick={props.onClear}>清空</button>
+          <button onClick={props.onExport}>导出</button>
+        </div>
+      </div>
+      <div class="log-viewer-content">
+        {filteredEntries.map(entry => (
+          <div class={`log-entry ${entry.level}`}>
+            <span class="log-timestamp">{formatTime(entry.timestamp)}</span>
+            <span class="log-level">{entry.level.toUpperCase()}</span>
+            <span class="log-source">[{entry.source}]</span>
+            <span class="log-message">{entry.message}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+#### 3. 确认对话框组件
+
+```typescript
+// .opencode/components/confirm-dialog.tsx
+interface ConfirmDialogProps {
+  title: string
+  message: string
+  details?: string
+  options: Array<{
+    label: string
+    value: string
+    description?: string
+    variant?: "primary" | "secondary" | "danger"
+  }>
+  timeout?: number
+  defaultValue?: string
+  onConfirm: (value: string) => void
+  onCancel: () => void
+}
+
+export function ConfirmDialog(props: ConfirmDialogProps) {
+  const [selected, setSelected] = createSignal(props.defaultValue || '')
+  const [timeLeft, setTimeLeft] = createSignal(props.timeout || 0)
+  
+  // 超时处理
+  if (props.timeout) {
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          props.onConfirm(selected())
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }
+  
+  return (
+    <div class="confirm-dialog">
+      <div class="confirm-dialog-header">
+        <h3>{props.title}</h3>
+      </div>
+      <div class="confirm-dialog-content">
+        <p>{props.message}</p>
+        {props.details && <div class="confirm-dialog-details">{props.details}</div>}
+      </div>
+      <div class="confirm-dialog-options">
+        {props.options.map(option => (
+          <button
+            class={`confirm-dialog-option ${option.variant || 'secondary'} ${selected() === option.value ? 'selected' : ''}`}
+            onClick={() => setSelected(option.value)}
+          >
+            <span class="option-label">{option.label}</span>
+            {option.description && <span class="option-description">{option.description}</span>}
+          </button>
+        ))}
+      </div>
+      <div class="confirm-dialog-footer">
+        {timeLeft() > 0 && <span class="timeout">超时：{timeLeft()} 秒</span>}
+        <button onClick={props.onCancel}>取消</button>
+        <button onClick={() => props.onConfirm(selected())}>确认</button>
+      </div>
+    </div>
+  )
+}
+```
+
+#### 4. 错误提示组件
+
+```typescript
+// .opencode/components/error-display.tsx
+interface ErrorDisplayProps {
+  title: string
+  message: string
+  code?: string
+  details?: string
+  suggestions?: string[]
+  actions?: Array<{
+    label: string
+    action: () => void
+    description?: string
+  }>
+}
+
+export function ErrorDisplay(props: ErrorDisplayProps) {
+  return (
+    <div class="error-display">
+      <div class="error-display-header">
+        <span class="error-icon">✗</span>
+        <h3>{props.title}</h3>
+      </div>
+      <div class="error-display-content">
+        <p class="error-message">{props.message}</p>
+        {props.code && <p class="error-code">错误代码：{props.code}</p>}
+        {props.details && <div class="error-details">{props.details}</div>}
+        {props.suggestions && (
+          <div class="error-suggestions">
+            <p>建议操作：</p>
+            <ul>
+              {props.suggestions.map((suggestion, index) => (
+                <li key={index}>{suggestion}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      {props.actions && (
+        <div class="error-actions">
+          {props.actions.map(action => (
+            <button onClick={action.action}>
+              {action.label}
+              {action.description && <span class="action-description">{action.description}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+### 实现优先级
+
+**阶段 1**：实现基础进度显示
+1. 进度条组件
+2. 简单日志显示
+3. 基础错误提示
+
+**阶段 2**：增强交互反馈
+1. 确认对话框
+2. 详细日志
+3. 操作反馈
+
+**阶段 3**：完善用户体验
+1. 实时进度
+2. 日志过滤
+3. 错误恢复
+
+### 设计要点
+
+1. **实时性**：进度和日志实时更新，用户随时了解执行状态
+2. **清晰性**：错误提示清晰明确，提供具体建议
+3. **友好性**：确认界面简洁易懂，操作方便
+4. **及时性**：交互反馈及时，用户操作有明确响应
+5. **可操作性**：提供具体操作按钮，用户可直接处理问题
+
 ## 技术实现方案
 
 ### 方案 1：总体线代理 + 会话编排工具
