@@ -32,12 +32,17 @@ const getBase = (): Configuration => ({
     output: "dist",
     buildResources: "resources",
   },
-  files: ["out/**/*", "resources/**/*"],
+  files: ["out/**/*", "resources/**/*", ".opencode/**/*"],
   extraResources: [
     {
       from: "native/",
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
+    },
+    {
+      from: "../../.opencode/",
+      to: ".opencode/",
+      filter: ["**/*"],
     },
   ],
   mac: {
