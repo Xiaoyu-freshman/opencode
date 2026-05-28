@@ -1233,6 +1233,448 @@ export function cleanupAllTasks(): void {
 3. **易于调试**：JSON 文件可直接查看和编辑
 4. **自动清理**：定期清理过期任务，避免磁盘占用
 
+## 错误处理和恢复机制
+
+### 错误类型分类
+
+#### 1. 执行错误
+
+```typescript
+type ExecutionError = 
+  | "worker_failed"        // Worker 执行失败
+  | "timeout"              // 任务超时
+  | "permission_denied"    // 权限不足
+  | "resource_not_found"   // 资源不存在
+  | "conflict"             // 冲突（如文件被修改）
+```
+
+#### 2. 系统错误
+
+```typescript
+type SystemError = 
+  | "session_creation_failed"  // 会话创建失败
+  | "message_send_failed"      // 消息发送失败
+  | "state_save_failed"        // 状态保存失败
+  | "network_error"            // 网络错误
+  | "api_error"                // API 错误
+```
+
+#### 3. 用户错误
+
+```typescript
+type UserError = 
+  | "invalid_prompt"       // 无效的 prompt
+  | "invalid_task"         // 无效的任务
+  | "cancelled"            // 用户取消
+```
+
+### 错误处理策略
+
+#### 策略 1：自动重试
+
+```typescript
+interface RetryConfig {
+  maxRetries: number       // 最大重试次数
+  retryDelay: number       // 重试延迟（毫秒）
+  backoffMultiplier: number // 退避乘数
+  retryableErrors: string[] // 可重试的错误类型
+}
+
+const defaultRetryConfig: RetryConfig = {
+  maxRetries: 3,
+  retryDelay: 1000,
+  backoffMultiplier: 2,
+  retryableErrors: [
+    "timeout",
+    "network_error",
+    "api_error",
+  ],
+}
+
+async function executeWithRetry<T>(
+  fn: () => Promise<T>,
+  config: RetryConfig = defaultRetryConfig
+): Promise<T> {
+  let lastError: Error | undefined
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error as Error
+      
+      // 检查是否可重试
+      if (!isRetryableError(error, config.retryableErrors)) {
+        throw error
+      }
+      
+      // 检查是否达到最大重试次数
+      if (attempt >= config.maxRetries) {
+        throw error
+      }
+      
+      // 计算延迟时间
+      const delay = config.retryDelay * Math.pow(config.backoffMultiplier, attempt)
+      
+      console.log(`执行失败，${delay}ms 后重试 (${attempt + 1}/${config.maxRetries})...`)
+      await sleep(delay)
+    }
+  }
+  
+  throw lastError
+}
+```
+
+#### 策略 2：降级处理
+
+```typescript
+interface FallbackConfig {
+  fallbackAction: "skip" | "manual" | "alternative"
+  alternativeFn?: () => Promise<any>
+  notifyUser: boolean
+}
+
+async function executeWithFallback<T>(
+  fn: () => Promise<T>,
+  fallback: FallbackConfig
+): Promise<T | undefined> {
+  try {
+    return await fn()
+  } catch (error) {
+    console.error("执行失败:", error)
+    
+    switch (fallback.fallbackAction) {
+      case "skip":
+        console.log("跳过失败的任务")
+        return undefined
+        
+      case "manual":
+        if (fallback.notifyUser) {
+          notifyUser("任务失败，请手动处理", error)
+        }
+        return undefined
+        
+      case "alternative":
+        if (fallback.alternativeFn) {
+          console.log("执行替代方案...")
+          return await fallback.alternativeFn()
+        }
+        return undefined
+    }
+  }
+}
+```
+
+#### 策略 3：优雅降级
+
+```typescript
+interface GracefulDegradationConfig {
+  partialSuccess: boolean  // 是否允许部分成功
+  continueOnError: boolean // 出错时是否继续
+  collectErrors: boolean   // 是否收集所有错误
+}
+
+async function executeWithGracefulDegradation<T>(
+  tasks: (() => Promise<T>)[],
+  config: GracefulDegradationConfig
+): Promise<{ results: T[]; errors: Error[] }> {
+  const results: T[] = []
+  const errors: Error[] = []
+  
+  for (const task of tasks) {
+    try {
+      const result = await task()
+      results.push(result)
+    } catch (error) {
+      errors.push(error as Error)
+      
+      if (!config.continueOnError) {
+        break
+      }
+    }
+  }
+  
+  if (config.partialSuccess && results.length > 0) {
+    return { results, errors }
+  }
+  
+  if (errors.length > 0) {
+    throw errors[0]
+  }
+  
+  return { results, errors }
+}
+```
+
+### 恢复机制
+
+#### 1. 任务恢复
+
+```typescript
+interface RecoveryConfig {
+  autoRecover: boolean     // 是否自动恢复
+  recoverableStatuses: string[] // 可恢复的状态
+  recoveryAction: "retry" | "resume" | "restart"
+}
+
+async function recoverTask(taskID: string, config: RecoveryConfig): Promise<void> {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  
+  // 检查是否可恢复
+  if (!config.recoverableStatuses.includes(task.status)) {
+    throw new Error(`任务 ${taskID} 状态为 ${task.status}，不可恢复`)
+  }
+  
+  switch (config.recoveryAction) {
+    case "retry":
+      // 重试任务
+      await retryTask(taskID)
+      break
+      
+    case "resume":
+      // 恢复任务
+      await resumeTask(taskID)
+      break
+      
+    case "restart":
+      // 重启任务
+      await restartTask(taskID)
+      break
+  }
+}
+
+async function retryTask(taskID: string): Promise<void> {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  
+  // 重置状态
+  updateTask(taskID, { 
+    status: "pending", 
+    error: undefined,
+    progress: 0 
+  })
+  
+  // 重新执行
+  await executeTask(taskID)
+}
+
+async function resumeTask(taskID: string): Promise<void> {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  
+  // 从暂停点恢复
+  updateTask(taskID, { status: "running" })
+  
+  // 继续执行
+  await continueTask(taskID, task.progress)
+}
+
+async function restartTask(taskID: string): Promise<void> {
+  const task = getTask(taskID)
+  if (!task) throw new Error(`任务 ${taskID} 不存在`)
+  
+  // 重置状态
+  updateTask(taskID, { 
+    status: "pending", 
+    error: undefined,
+    result: undefined,
+    progress: 0 
+  })
+  
+  // 重新执行
+  await executeTask(taskID)
+}
+```
+
+#### 2. 会话恢复
+
+```typescript
+async function recoverSession(sessionID: string): Promise<void> {
+  try {
+    // 检查会话状态
+    const status = await getSessionStatus(sessionID)
+    
+    if (status === "failed") {
+      // 会话失败，重新创建
+      await recreateSession(sessionID)
+    } else if (status === "stuck") {
+      // 会话卡住，重启
+      await restartSession(sessionID)
+    }
+  } catch (error) {
+    console.error("会话恢复失败:", error)
+    throw error
+  }
+}
+```
+
+#### 3. 数据一致性保证
+
+```typescript
+interface ConsistencyConfig {
+  atomicOperations: boolean  // 是否原子操作
+  rollbackOnError: boolean   // 出错时是否回滚
+  checkpointInterval: number // 检查点间隔（毫秒）
+}
+
+async function executeWithConsistency<T>(
+  fn: () => Promise<T>,
+  config: ConsistencyConfig
+): Promise<T> {
+  // 创建检查点
+  const checkpoint = await createCheckpoint()
+  
+  try {
+    // 执行操作
+    const result = await fn()
+    
+    // 提交检查点
+    await commitCheckpoint(checkpoint)
+    
+    return result
+  } catch (error) {
+    // 回滚到检查点
+    if (config.rollbackOnError) {
+      await rollbackToCheckpoint(checkpoint)
+    }
+    
+    throw error
+  }
+}
+```
+
+### 错误通知
+
+#### 通知方式
+
+```typescript
+type NotificationType = 
+  | "toast"      // 气泡通知
+  | "message"    // 消息通知
+  | "email"      // 邮件通知
+  | "webhook"    // Webhook 通知
+
+interface NotificationConfig {
+  type: NotificationType
+  onSuccess: boolean  // 成功时是否通知
+  onError: boolean    // 失败时是否通知
+  onProgress: boolean // 进度更新时是否通知
+}
+
+function notifyUser(
+  message: string, 
+  error?: Error, 
+  config: NotificationConfig = { type: "toast", onSuccess: false, onError: true, onProgress: false }
+): void {
+  switch (config.type) {
+    case "toast":
+      showToast({ 
+        variant: error ? "error" : "success", 
+        title: message,
+        description: error?.message 
+      })
+      break
+      
+    case "message":
+      // 发送消息到当前会话
+      sendMessage(message)
+      break
+      
+    case "email":
+      // 发送邮件
+      sendEmail(message, error)
+      break
+      
+    case "webhook":
+      // 发送 Webhook
+      sendWebhook(message, error)
+      break
+  }
+}
+```
+
+### 完整的错误处理流程
+
+```typescript
+async function executeWithErrorHandling<T>(
+  fn: () => Promise<T>,
+  options: {
+    retry?: RetryConfig
+    fallback?: FallbackConfig
+    degradation?: GracefulDegradationConfig
+    recovery?: RecoveryConfig
+    consistency?: ConsistencyConfig
+    notification?: NotificationConfig
+  } = {}
+): Promise<T | undefined> {
+  try {
+    // 1. 创建检查点
+    if (options.consistency) {
+      return await executeWithConsistency(fn, options.consistency)
+    }
+    
+    // 2. 执行重试逻辑
+    if (options.retry) {
+      return await executeWithRetry(fn, options.retry)
+    }
+    
+    // 3. 直接执行
+    return await fn()
+    
+  } catch (error) {
+    console.error("执行失败:", error)
+    
+    // 4. 尝试恢复
+    if (options.recovery) {
+      try {
+        await recoverTask(taskID, options.recovery)
+        return undefined
+      } catch (recoveryError) {
+        console.error("恢复失败:", recoveryError)
+      }
+    }
+    
+    // 5. 降级处理
+    if (options.fallback) {
+      return await executeWithFallback(fn, options.fallback)
+    }
+    
+    // 6. 通知用户
+    if (options.notification) {
+      notifyUser("任务执行失败", error as Error, options.notification)
+    }
+    
+    throw error
+  }
+}
+```
+
+### 实现优先级
+
+**阶段 1**：实现基础错误处理
+1. 自动重试（可重试的错误）
+2. 超时处理
+3. 错误通知
+
+**阶段 2**：增强恢复机制
+1. 任务恢复
+2. 会话恢复
+3. 数据一致性
+
+**阶段 3**：完善降级策略
+1. 优雅降级
+2. 替代方案
+3. 部分成功
+
+### 设计要点
+
+1. **错误分类**：区分执行错误、系统错误和用户错误
+2. **重试策略**：自动重试可重试的错误，避免无限重试
+3. **恢复机制**：支持任务恢复、会话恢复和数据一致性
+4. **错误通知**：及时通知用户，提供清晰的错误信息
+5. **优雅降级**：允许部分成功，继续执行其他任务
+
 ## 技术实现方案
 
 ### 方案 1：总体线代理 + 会话编排工具
