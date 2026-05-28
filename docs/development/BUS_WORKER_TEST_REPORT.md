@@ -2,8 +2,8 @@
 
 ## Test Environment
 
-- **Date**: 2026-05-27
-- **Branch**: dev (2a35fa68e)
+- **Date**: 2026-05-27 (Updated)
+- **Branch**: dev (dad7045de)
 - **Tester**: opencode automated testing
 
 ## Test Results Summary
@@ -22,9 +22,9 @@
 
 - **Severity**: High
 - **File**: `.opencode/tool/worktree.ts:74`
-- **Problem**: Default base branch was `"main"` but repo uses `"dev"`
-- **Impact**: `worktree.create()` would fail when no base branch specified
-- **Fix**: Changed default from `"main"` to `"dev"`
+- **Problem**: Default base branch was hardcoded to `"dev"` (opencode's own branch), not suitable for user projects
+- **Impact**: `worktree.create()` would fail when no base branch specified in projects using `main`
+- **Fix**: Added `detectDefaultBranch()` function that checks `git symbolic-ref refs/remotes/{remote}/HEAD`, fallback to `"main"`
 
 ### Issue 2: Bus prompt references wrong base branch
 
@@ -147,3 +147,51 @@ Full Bus-Worker workflow tested:
 ## Conclusion
 
 All tests pass. The Bus-Worker architecture is functional and ready for use. Four issues were discovered and fixed during testing.
+
+---
+
+## Verification Run (2026-05-27)
+
+### Environment Check
+
+| Item | Status | Notes |
+|------|--------|-------|
+| `.opencode/agent/bus.md` | ✓ | Mode: primary, permissions correct |
+| `.opencode/agent/bus-worker-implementation.md` | ✓ | Mode: subagent, write: allow present |
+| `.opencode/agent/bus-worker-diagnostic.md` | ✓ | Mode: subagent, bash: allow, edit: deny |
+| `.opencode/agent/bus-worker-full.md` | ✓ | Mode: subagent, all permissions |
+| `.opencode/tool/worktree.ts` | ✓ | Default base: "dev", force uses -D |
+| `.opencode/prompt/worker-*.md` | ✓ | All 3 prompt templates exist |
+
+### Previous Fixes Verified
+
+1. **Default base branch**: Dynamic detection via `detectDefaultBranch()` ✓
+2. **Bus prompt example**: Uses `worktree.create({ task: "<name>" })` (auto-detect) ✓
+3. **Implementation worker write permission**: `write: allow` ✓
+4. **Force remove branch deletion**: `args.force ? "-D" : "-d"` ✓
+
+### Git Status
+
+- Branch: `dev` (ahead 4, clean)
+- No test worktrees present
+- No test branches present
+
+### Test Suite Results
+
+```
+bun test test/project/worktree.test.ts
+
+13 pass
+0 fail
+32 expect() calls
+Ran 13 tests across 1 file. [5.28s]
+```
+
+All worktree lifecycle tests pass:
+- Create with name, branch, directory ✓
+- Slugify names ✓
+- Detached worktrees ✓
+- Create + remove lifecycle ✓
+- Event.Ready after bootstrap ✓
+- List with parent folder detection ✓
+- Remove edge cases ✓

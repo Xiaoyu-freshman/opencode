@@ -25,6 +25,17 @@ function worktreePath(task: string): string {
   return `${worktreeBase()}/${projectName()}-${task}`
 }
 
+function detectDefaultBranch(): string {
+  try {
+    const remote = runCommand("git remote show").trim().split("\n")[0]
+    if (remote) {
+      const head = runCommand(`git symbolic-ref refs/remotes/${remote}/HEAD 2>/dev/null`).trim()
+      if (head) return head.replace(`refs/remotes/${remote}/`, "")
+    }
+  } catch {}
+  return "main"
+}
+
 function runCommand(command: string): string {
   try {
     return execSync(command, { encoding: "utf-8", timeout: 60000 })
@@ -71,7 +82,7 @@ Use this tool to isolate worker tasks in separate worktrees.`,
         if (!args.task) throw new Error("task is required for create operation")
         const branch = branchName(args.task)
         const path = worktreePath(args.task)
-        const base = args.base ?? "dev"
+        const base = args.base ?? detectDefaultBranch()
 
         runCommand(`mkdir -p "${worktreeBase()}"`)
         runCommand(`git worktree add -b "${branch}" "${path}" "${base}"`)

@@ -63,7 +63,7 @@ You are the Bus agent. You own the full development lifecycle.
 
 Before spawning a worker:
 
-1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>", base: "dev" })`
+1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>" })` (base branch auto-detected)
 2. Write the worker prompt including:
    - Worktree path
    - Files to read first
@@ -76,7 +76,8 @@ Before spawning a worker:
    - Run acceptance commands
    - Commit if acceptable, or send a correction prompt
 5. Merge to base branch:
-   - Switch to the base branch: `git checkout dev`
+   - Determine the default branch (e.g., `main`, `master`, `dev`)
+   - Switch to the base branch: `git checkout <default-branch>`
    - Merge the worker branch: `git merge codex/<task>-YYYYMMDD --no-edit`
    - Delete the worker branch: `git branch -d codex/<task>-YYYYMMDD`
 6. Clean up: `worktree.remove({ branch: "codex/<task>-YYYYMMDD" })`
