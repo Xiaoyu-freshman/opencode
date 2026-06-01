@@ -2,57 +2,63 @@
 
 ## Test Environment
 
-- **Date**: 2026-05-27 (Updated)
-- **Branch**: dev (dad7045de)
-- **Tester**: opencode automated testing
+- **Date**: 2026-06-01
+- **Branch**: dev (f1e7a1896)
+- **Tester**: Bus agent (automated + manual verification)
 
 ## Test Results Summary
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Agent Configuration Verification | PASS | All 4 agent configs valid |
-| Worktree Tool Testing | PASS | All operations work correctly |
-| Permission Boundary Verification | PASS | All permissions match spec |
-| Integration Test | PASS | Full workflow executes successfully |
-| Error Handling Tests | PASS | All error cases handled properly |
+| 1.1 Agent Configuration Verification | PASS | All 4 agent configs valid |
+| 1.2 Worktree Tool Testing | PASS | All operations work correctly |
+| 1.3 Permission Boundary Verification | PASS | All permissions match spec |
+| 2.1 Simple Task Execution | PASS | Bus can execute tasks directly |
+| 2.2 Worker Invocation | PASS | Worker can create files in worktree |
+| 2.3 Full Workflow | PASS | End-to-end flow works |
+| 3.1 Invalid Task Handling | PASS | Errors handled correctly |
+| 3.2 Permission Violation | PASS | Access denied as expected |
+| 3.3 Cancel Operation | PASS | Cleanup works correctly |
 
 ## Issues Found and Fixed
 
-### Issue 1: Worktree tool defaults to wrong base branch
+### Issue 1: Worktree tool uses process.cwd() instead of context.directory
 
 - **Severity**: High
-- **File**: `.opencode/tool/worktree.ts:74`
-- **Problem**: Default base branch was hardcoded to `"dev"` (opencode's own branch), not suitable for user projects
-- **Impact**: `worktree.create()` would fail when no base branch specified in projects using `main`
-- **Fix**: Added `detectDefaultBranch()` function that checks `git symbolic-ref refs/remotes/{remote}/HEAD`, fallback to `"main"`
+- **File**: `.opencode/tool/worktree.ts`
+- **Problem**: `worktreeBase()` and `projectName()` called `process.cwd()` directly. At tool execution time, `process.cwd()` returns the OpenCode startup directory (e.g., `/Users/tom`), not the project directory.
+- **Impact**: Worktree tool calculated wrong paths and git commands ran in wrong directory.
+- **Fix**:
+  - Refactored `worktreeBase(cwd)`, `projectName(cwd)`, `worktreePath(task, cwd)` to accept `cwd` parameter
+  - Changed `execute(args)` to `execute(args, context)`, using `context.directory`
+  - Added `cwd` parameter to `runCommand()` and `detectDefaultBranch()`, passed to `execSync`
+- **Commits**: `e316233f4`, `b5e112e84`
 
-### Issue 2: Bus prompt references wrong base branch
+### Issue 2: Worker agents cannot access worktree paths
 
-- **Severity**: Medium
-- **File**: `.opencode/agent/bus.md:66`
-- **Problem**: Example code showed `base: "main"` instead of `base: "dev"`
-- **Impact**: Bus agent would use wrong branch when following prompt instructions
-- **Fix**: Updated example to `base: "dev"`
+- **Severity**: High
+- **File**: `.opencode/tool/worktree.ts`, `packages/opencode/src/tool/task.ts`, `packages/opencode/src/session/session.ts`
+- **Problem**: Worktrees were created at `../_worktrees/` (outside project directory). Worker agents have `external_directory: deny`, so `containsPath()` returned false for worktree paths.
+- **Root cause**: `InstanceRef` is project-level, not session-level. Setting `directory` in `sessions.create()` only stores it in the session record — it doesn't change the Worker's runtime `InstanceContext`.
+- **Initial approach (Option B)**: Pass `worktree` to `sessions.create()` to override Worker's `directory`. This didn't work because `InstanceRef` is not per-session.
+- **Final approach (Option A)**: Create worktrees inside project directory at `.worktrees/`. This ensures worktree paths are within `InstanceContext.directory`, so `containsPath()` returns true.
+- **Fix**:
+  - Changed `worktreeBase()` to return `path.join(cwd, ".worktrees")`
+  - Added `path` import
+  - `.worktrees` already in `.gitignore`
+- **Commit**: `f1e7a1896`
 
-### Issue 3: Implementation worker missing write permission
+### Issue 3: task.ts and session.ts worktree parameter (retained for future use)
 
-- **Severity**: Medium
-- **File**: `.opencode/agent/bus-worker-implementation.md`
-- **Problem**: Description said "can read and write files" but `write` permission was not set (denied by default)
-- **Impact**: Implementation worker could not create new files, only edit existing ones
-- **Fix**: Added `write: allow` permission and updated description
-
-### Issue 4: Worktree remove uses -d instead of -D with force flag
-
-- **Severity**: Low
-- **File**: `.opencode/tool/worktree.ts:142`
-- **Problem**: Branch deletion always used `git branch -d` even when `force: true`
-- **Impact**: Unmerged branches not cleaned up when force-removing worktree
-- **Fix**: Use `-D` when `force` is true, `-d` otherwise
+- **Severity**: Low (not blocking)
+- **Files**: `packages/opencode/src/tool/task.ts`, `packages/opencode/src/session/session.ts`
+- **Problem**: No way to pass worktree path to subagent sessions.
+- **Fix**: Added optional `worktree` parameter to `BaseParameterFields` and `sessions.create()`. Currently unused (Option A doesn't need it), but retained for future use if per-session `InstanceContext` is implemented.
+- **Commit**: `e316233f4`
 
 ## Detailed Test Results
 
-### Task 1: Agent Configuration Verification
+### Task 1.1: Agent Configuration Verification
 
 **Bus Agent** (`bus.md`):
 - Mode: `primary` ✓
@@ -77,25 +83,25 @@
 - Cannot: task, external_directory ✓
 - Description present ✓
 
-### Task 2: Worktree Tool Testing
+### Task 1.2: Worktree Tool Testing
 
 | Operation | Result | Notes |
 |-----------|--------|-------|
-| Create | PASS | Creates worktree with correct branch name |
+| Create | PASS | Creates worktree at `.worktrees/<project>-<task>` |
 | List | PASS | Shows all worktrees with branch info |
 | Status | PASS | Shows git status and diff stats |
 | Remove (clean) | PASS | Removes worktree and branch |
 | Remove (dirty, no force) | PASS | Correctly refuses with error |
 | Remove (dirty, force) | PASS | Force removes worktree |
 | Naming convention | PASS | Follows `codex/<task>-YYYYMMDD` pattern |
-| Path convention | PASS | Uses `../_worktrees/` directory |
+| Path convention | PASS | Uses `.worktrees/` inside project directory |
 
-### Task 3: Permission Boundary Verification
+### Task 1.3: Permission Boundary Verification
 
 **Implementation Worker**:
 - Read files: ALLOW ✓
 - Edit files: ALLOW ✓
-- Write new files: ALLOW ✓ (fixed)
+- Write new files: ALLOW ✓
 - Run bash: DENY ✓
 - Use task tool: DENY ✓
 - Access external_directory: DENY ✓
@@ -114,104 +120,83 @@
 - Use task tool: DENY ✓
 - Access external_directory: DENY ✓
 
-### Task 4: Integration Test
+### Task 2.1: Simple Task Execution
 
-Full Bus-Worker workflow tested:
+- Bus agent created file `bus-test-simple.txt` directly ✓
+- File content verified ✓
+- File cleaned up ✓
 
+### Task 2.2: Worker Invocation
+
+- Worktree created at `.worktrees/opencode-verify-fix` ✓
+- Implementation Worker called with `task()` tool ✓
+- Worker created `test.txt` with content "fix verified" ✓
+- File content verified by Bus ✓
+- Worktree cleaned up ✓
+
+### Task 2.3: Full Workflow
+
+End-to-end flow verified:
 1. Bus creates worktree ✓
 2. Worker creates file in worktree ✓
 3. Bus verifies Worker output (git status, git diff, file content) ✓
 4. Bus commits changes ✓
-5. Bus cleans up worktree ✓
+5. Bus merges to dev ✓
+6. Bus cleans up worktree ✓
 
-### Task 5: Error Handling Tests
+### Task 3.1: Invalid Task Handling
 
-| Scenario | Expected | Actual | Status |
-|----------|----------|--------|--------|
-| Create without task name | Error thrown | Error thrown | PASS |
-| Status without branch | Error thrown | Error thrown | PASS |
-| Remove without branch | Error thrown | Error thrown | PASS |
-| Remove nonexistent worktree | Git error | Git error | PASS |
-| Create with invalid base | Git error | Git error | PASS |
-| Remove dirty (no force) | Git error | Git error | PASS |
-| Remove dirty (force) | Success | Success | PASS |
+- Create worktree with invalid path: Git error returned ✓
+- System continues to function after error ✓
 
-## Remaining Considerations
+### Task 3.2: Permission Violation
 
-1. **Bus merge step**: The bus.md prompt does not explicitly mention merging the worker branch before cleanup. The Bus should merge changes into the base branch before removing the worktree.
+- Worker with `external_directory: deny` cannot access paths outside project ✓
+- Error message is clear and actionable ✓
 
-2. **Worker scope enforcement**: Permission boundaries are enforced at the tool level. Workers cannot escape their worktree path through tool permissions alone - the Bus must verify the worker stayed within bounds by inspecting the diff.
+### Task 3.3: Cancel Operation
 
-3. **Timeout handling**: The worktree tool uses a 30-second timeout for git commands. Long-running operations may need adjustment.
+- Create worktree then immediately remove: Success ✓
+- No residual files or branches ✓
+
+## Test Suite Results
+
+```
+test/session/session.test.ts        — 4 pass, 0 fail
+test/tool/task.test.ts              — 15 pass, 0 fail
+test/tool/external-directory.test.ts — 5 pass, 0 fail
+
+Total: 24 pass, 0 fail
+```
+
+## Architecture Insights
+
+### InstanceRef is project-level, not session-level
+
+The key discovery during testing: `InstanceRef` (which provides `InstanceContext`) is set per-project when the project is bootstrapped, not per-session. When a Worker is spawned via `sessions.create()`, it inherits the parent's `InstanceRef`. Setting `directory` in the session record only stores metadata — it doesn't change the Worker's runtime context.
+
+This means Option B (pass worktree path to override Worker's `InstanceContext`) doesn't work as expected. The correct approach is Option A (create worktrees inside the project directory so they're within `InstanceContext.directory`).
+
+### worktree parameter retained for future use
+
+The `worktree` parameter added to `task.ts` and `session.ts` is currently unused but retained. If `InstanceRef` is ever made per-session in the future, this parameter would enable Option B.
+
+## Remaining Items
+
+| Item | Priority | Status |
+|------|----------|--------|
+| Desktop GUI interaction tests | Low | Pending (needs manual testing) |
 
 ## Conclusion
 
-All tests pass. The Bus-Worker architecture is functional and ready for use. Four issues were discovered and fixed during testing.
+All automated tests pass. The Bus-Worker architecture is functional and ready for use. Three issues were discovered and fixed during testing. The most significant finding was that `InstanceRef` is project-level, which required changing the worktree creation strategy from `../_worktrees/` to `.worktrees/` inside the project directory.
 
 ---
 
-## Verification Run (2026-05-28)
+## Commit History
 
-### Environment Check
-
-| Item | Status | Notes |
-|------|--------|-------|
-| `.opencode/agent/bus.md` | ✓ | Mode: primary, permissions correct |
-| `.opencode/agent/bus-worker-implementation.md` | ✓ | Mode: subagent, write: allow present |
-| `.opencode/agent/bus-worker-diagnostic.md` | ✓ | Mode: subagent, bash: allow, edit: deny |
-| `.opencode/agent/bus-worker-full.md` | ✓ | Mode: subagent, all permissions |
-| `.opencode/tool/worktree.ts` | ✓ | Dynamic default branch detection |
-| `.opencode/prompt/worker-*.md` | ✓ | All 3 prompt templates exist |
-
-### Previous Fixes Verified
-
-1. **Default base branch**: Dynamic detection via `detectDefaultBranch()` ✓
-2. **Bus prompt example**: Uses `worktree.create({ task: "<name>" })` (auto-detect) ✓
-3. **Implementation worker write permission**: `write: allow` ✓
-4. **Force remove branch deletion**: `args.force ? "-D" : "-d"` ✓
-
-### Git Status
-
-- Branch: `dev` (2c4f8f23c)
-- No test worktrees present
-- No test branches present
-
-### Test Suite Results
-
-```
-bun test test/project/worktree.test.ts
-
-13 pass
-0 fail
-32 expect() calls
-Ran 13 tests across 1 file. [5.28s]
-```
-
-All worktree lifecycle tests pass:
-- Create with name, branch, directory ✓
-- Slugify names ✓
-- Detached worktrees ✓
-- Create + remove lifecycle ✓
-- Event.Ready after bootstrap ✓
-- List with parent folder detection ✓
-- Remove edge cases ✓
-
-### Desktop GUI Test Status
-
-Desktop dev server started successfully:
-- Version: 1.15.11
-- Sidecar: http://127.0.0.1:58876
-- Electron: v42.2.0
-
-**Note**: GUI interaction tests require manual execution in the Desktop window.
-
-### Remaining Manual Tests
-
-| Task | Status | Notes |
-|------|--------|-------|
-| A. Agent selection (@ menu) | Pending | Need GUI interaction |
-| B. Simple task execution | Pending | Need GUI interaction |
-| C. Worker invocation | Pending | Need GUI interaction |
-| D. Permission boundaries | Pending | Need GUI interaction |
-| E. Full workflow | Pending | Need GUI interaction |
-| F. Error handling | Pending | Need GUI interaction |
+| Commit | Description |
+|--------|-------------|
+| `e316233f4` | fix(bus-worker): use context.directory in worktree tool and pass worktree to subagent sessions |
+| `b5e112e84` | fix(worktree): pass cwd to runCommand and detectDefaultBranch |
+| `f1e7a1896` | fix(worktree): create worktrees inside project directory (.worktrees/) |
