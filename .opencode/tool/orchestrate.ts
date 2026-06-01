@@ -40,9 +40,10 @@ This tool validates inputs and generates a complete, bus-ready prompt with:
 - Structured output format requirements
 - Error handling and recovery instructions
 - User experience components (progress, logs, dialogs, errors)
+- Resource management (concurrency, memory, storage, performance)
 
 Workflow:
-1. Call orchestrate({ task, prompt, workers?, timeout?, errorHandling? })
+1. Call orchestrate({ task, prompt, workers?, timeout?, errorHandling?, enableUX?, enableResourceManagement? })
 2. Pass the returned enhancedPrompt to the task tool: task({ subagent_type: "bus", prompt: result.enhancedPrompt, description: result.taskDescription })`,
   args: {
     task: tool.schema
@@ -69,6 +70,11 @@ Workflow:
       .describe("Enable user experience components (default: true)")
       .default(true)
       .optional(),
+    enableResourceManagement: tool.schema
+      .boolean()
+      .describe("Enable resource management components (default: true)")
+      .default(true)
+      .optional(),
   },
   async execute(args) {
     if (!args.task.trim()) {
@@ -81,6 +87,7 @@ Workflow:
     const timeout = args.timeout ?? 30
     const workers = args.workers ?? []
     const enableUX = args.enableUX ?? true
+    const enableResourceManagement = args.enableResourceManagement ?? true
     const errorHandling: ErrorHandlingConfig = {
       ...defaultErrorHandlingConfig,
       ...(args.errorHandling || {}),
@@ -160,6 +167,40 @@ Use the \`error-display\` tool for error handling:
 5. At completion, show final progress and summary`
       : ""
 
+    const resourceManagementSection = enableResourceManagement
+      ? `## Resource Management
+
+This orchestration includes resource management to prevent resource exhaustion:
+
+### Concurrency Control
+Use the \`concurrency-manager\` tool to control task execution:
+- Acquire permit: \`concurrency-manager({ action: "acquire", taskID: "<task-id>" })\`
+- Release permit: \`concurrency-manager({ action: "release", taskID: "<task-id>" })\`
+- Check status: \`concurrency-manager({ action: "status" })\`
+
+### Memory Management
+Use the \`memory-manager\` tool to monitor memory:
+- Check status: \`memory-manager({ action: "status" })\`
+- Cleanup if needed: \`memory-manager({ action: "cleanup" })\`
+
+### Storage Management
+Use the \`storage-manager\` tool to manage storage:
+- Check status: \`storage-manager({ action: "status" })\`
+- Cleanup if needed: \`storage-manager({ action: "cleanup" })\`
+
+### Performance Monitoring
+Use the \`performance-monitor\` tool to track performance:
+- Get metrics: \`performance-monitor({ action: "status" })\`
+- Generate report: \`performance-monitor({ action: "report" })\`
+
+### Resource Management Workflow
+1. Before task execution, acquire concurrency permit
+2. Check memory and storage status
+3. During execution, monitor performance
+4. After completion, release concurrency permit
+5. Run cleanup if resource usage is high`
+      : ""
+
     const enhancedPrompt = `# Orchestration Task: ${args.task}
 
 ${args.prompt}
@@ -181,6 +222,8 @@ If a worker cannot complete within the time limit, it should commit partial prog
 ${errorHandlingSection}
 
 ${uxSection}
+
+${resourceManagementSection}
 
 ## Structured Output
 
@@ -236,6 +279,7 @@ Include detailed error information and recovery attempts in the report.`
         workerCount: workers.length,
         errorHandling,
         enableUX,
+        enableResourceManagement,
       },
     }
   },
