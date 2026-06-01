@@ -1,6 +1,7 @@
 /// <reference path="../env.d.ts" />
 import { tool } from "@opencode-ai/plugin/tool"
 import { execSync } from "child_process"
+import path from "path"
 
 function today(): string {
   const d = new Date()
@@ -8,8 +9,7 @@ function today(): string {
 }
 
 function worktreeBase(cwd: string): string {
-  const parent = cwd.replace(/\/[^/]+$/, "")
-  return `${parent}/_worktrees`
+  return path.join(cwd, ".worktrees")
 }
 
 function projectName(cwd: string): string {
