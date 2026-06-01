@@ -205,7 +205,14 @@ export const layer: Layer.Layer<
           const namespace = path.basename(match, path.extname(match))
           // `match` is an absolute filesystem path from `Glob.scanSync(..., { absolute: true })`.
           // Import it as `file://` so Node on Windows accepts the dynamic import.
-          const mod = yield* Effect.promise(() => import(pathToFileURL(match).href))
+          const mod = yield* Effect.promise(async () => {
+            try {
+              return await import(pathToFileURL(match).href)
+            } catch (error) {
+              log.error("failed to import custom tool", { path: match, ...importErrorDetails(error) })
+              throw error
+            }
+          })
           for (const [id, def] of Object.entries(mod)) {
             if (!isPluginTool(def)) continue
             custom.push(fromPlugin(id === "default" ? namespace : `${namespace}_${id}`, def))
@@ -466,6 +473,16 @@ function normalizeZodJsonSchema(value: unknown): unknown {
       )
       .map(([key, item]) => [key, normalizeZodJsonSchema(item)]),
   )
+}
+
+function importErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) return { error }
+  return {
+    error: error.message,
+    name: error.name,
+    stack: error.stack,
+    cause: error.cause,
+  }
 }
 
 function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
