@@ -24,20 +24,20 @@ function worktreePath(task: string, cwd: string): string {
   return `${worktreeBase(cwd)}/${projectName(cwd)}-${task}`
 }
 
-function detectDefaultBranch(): string {
+function detectDefaultBranch(cwd: string): string {
   try {
-    const remote = runCommand("git remote show").trim().split("\n")[0]
+    const remote = runCommand("git remote show", cwd).trim().split("\n")[0]
     if (remote) {
-      const head = runCommand(`git symbolic-ref refs/remotes/${remote}/HEAD 2>/dev/null`).trim()
+      const head = runCommand(`git symbolic-ref refs/remotes/${remote}/HEAD 2>/dev/null`, cwd).trim()
       if (head) return head.replace(`refs/remotes/${remote}/`, "")
     }
   } catch {}
   return "main"
 }
 
-function runCommand(command: string): string {
+function runCommand(command: string, cwd?: string): string {
   try {
-    return execSync(command, { encoding: "utf-8", timeout: 60000 })
+    return execSync(command, { encoding: "utf-8", timeout: 60000, cwd })
   } catch (error: any) {
     throw new Error(`Command failed: ${command}\n${error.stderr || error.message}`)
   }
@@ -82,10 +82,10 @@ Use this tool to isolate worker tasks in separate worktrees.`,
         if (!args.task) throw new Error("task is required for create operation")
         const branch = branchName(args.task)
         const path = worktreePath(args.task, cwd)
-        const base = args.base ?? detectDefaultBranch()
+        const base = args.base ?? detectDefaultBranch(cwd)
 
-        runCommand(`mkdir -p "${worktreeBase(cwd)}"`)
-        runCommand(`git worktree add -b "${branch}" "${path}" "${base}"`)
+        runCommand(`mkdir -p "${worktreeBase(cwd)}"`, cwd)
+        runCommand(`git worktree add -b "${branch}" "${path}" "${base}"`, cwd)
 
         return [
           `Worktree created:`,
@@ -98,7 +98,7 @@ Use this tool to isolate worker tasks in separate worktrees.`,
       }
 
       case "list": {
-        const text = runCommand("git worktree list --porcelain")
+        const text = runCommand("git worktree list --porcelain", cwd)
         if (!text.trim()) return "No worktrees found."
 
         const entries = text.trim().split("\n\n")
@@ -116,7 +116,7 @@ Use this tool to isolate worker tasks in separate worktrees.`,
       case "status": {
         if (!args.branch) throw new Error("branch is required for status operation")
 
-        const listText = runCommand("git worktree list --porcelain")
+        const listText = runCommand("git worktree list --porcelain", cwd)
         const match = listText.match(
           new RegExp(`worktree (.+)\nbranch refs/heads/${args.branch}`, "m"),
         )
@@ -138,7 +138,7 @@ Use this tool to isolate worker tasks in separate worktrees.`,
       case "remove": {
         if (!args.branch) throw new Error("branch is required for remove operation")
 
-        const listText = runCommand("git worktree list --porcelain")
+        const listText = runCommand("git worktree list --porcelain", cwd)
         const match = listText.match(
           new RegExp(`worktree (.+)\nbranch refs/heads/${args.branch}`, "m"),
         )
