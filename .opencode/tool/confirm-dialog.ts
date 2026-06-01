@@ -158,7 +158,8 @@ export default tool({
     answer: tool.schema.string().optional().describe("用户选择的答案"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "create": {
         if (!args.title) throw new Error("title is required for create operation")
         if (!args.message) throw new Error("message is required for create operation")
@@ -302,7 +303,9 @@ export default tool({
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })
 

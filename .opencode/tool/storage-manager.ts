@@ -270,7 +270,8 @@ Use this tool to prevent disk space exhaustion from task accumulation.`,
     taskID: tool.schema.string().optional().describe("Task ID for details"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "status": {
         const status = getStorageStatus()
         return {
@@ -364,6 +365,8 @@ Use this tool to prevent disk space exhaustion from task accumulation.`,
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })

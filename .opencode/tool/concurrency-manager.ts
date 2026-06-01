@@ -133,7 +133,8 @@ Use this tool to prevent resource exhaustion from too many concurrent tasks.`,
     taskID: tool.schema.string().optional().describe("Task ID"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "config": {
         const newConfig: Partial<ConcurrencyConfig> = {}
         if (args.maxConcurrent !== undefined) newConfig.maxConcurrent = args.maxConcurrent
@@ -223,6 +224,8 @@ Use this tool to prevent resource exhaustion from too many concurrent tasks.`,
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })

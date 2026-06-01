@@ -345,7 +345,8 @@ Use this tool to monitor system health and identify bottlenecks.`,
     failureThreshold: tool.schema.number().optional().describe("Failure rate alert threshold"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "status": {
         const metrics = collectMetrics()
         addToHistory(metrics)
@@ -444,7 +445,9 @@ Use this tool to monitor system health and identify bottlenecks.`,
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })
 

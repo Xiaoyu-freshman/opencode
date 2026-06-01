@@ -163,7 +163,8 @@ export default tool({
     resolution: tool.schema.string().optional().describe("解决方案"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "show": {
         if (!args.title) throw new Error("title is required for show operation")
         if (!args.message) throw new Error("message is required for show operation")
@@ -302,7 +303,9 @@ export default tool({
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })
 

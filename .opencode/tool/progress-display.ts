@@ -151,8 +151,9 @@ export default tool({
   },
   async execute(args) {
     const taskID = args.taskID || "default"
+    const result = (() => {
 
-    switch (args.action) {
+      switch (args.action) {
       case "update": {
         let progress = readProgress(taskID) || createEmptyProgress()
 
@@ -267,7 +268,9 @@ export default tool({
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })
 

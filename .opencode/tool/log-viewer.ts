@@ -134,8 +134,9 @@ export default tool({
   },
   async execute(args) {
     const sessionID = args.sessionID || "default"
+    const result = (() => {
 
-    switch (args.action) {
+      switch (args.action) {
       case "log": {
         if (!args.message) {
           throw new Error("message is required for log operation")
@@ -266,7 +267,9 @@ export default tool({
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })
 

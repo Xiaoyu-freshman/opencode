@@ -55,7 +55,7 @@ let lastCleanup: CleanupResult | null = null
 
 function getMemoryStatus(): MemoryStatus {
   const usage = process.memoryUsage()
-  const percentage = Math.round((usage.heapUsed / usage.heapTotal) * 100)
+  const percentage = Math.min(100, Math.round((usage.heapUsed / usage.heapTotal) * 100))
 
   return {
     heapUsed: usage.heapUsed,
@@ -234,7 +234,8 @@ Use this tool to prevent memory leaks and manage resource consumption.`,
     limit: tool.schema.number().optional().describe("History limit"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "status": {
         const status = getMemoryStatus()
         addToHistory(status)
@@ -322,6 +323,8 @@ Use this tool to prevent memory leaks and manage resource consumption.`,
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })

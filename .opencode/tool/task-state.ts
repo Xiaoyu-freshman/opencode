@@ -99,7 +99,8 @@ Storage location: ~/.config/opencode/tasks/`,
     maxCount: tool.schema.number().optional().describe("Max tasks to keep"),
   },
   async execute(args) {
-    switch (args.action) {
+    const result = (() => {
+      switch (args.action) {
       case "create": {
         if (!args.task) throw new Error("task is required for create operation")
         const taskID = args.taskID || generateTaskID()
@@ -256,6 +257,8 @@ Storage location: ~/.config/opencode/tasks/`,
 
       default:
         throw new Error(`Unknown action: ${args.action}`)
-    }
+      }
+    })()
+    return { output: JSON.stringify(result, null, 2) }
   },
 })

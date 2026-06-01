@@ -10,6 +10,63 @@ const PROGRESS_DIR = join(TEST_DIR, "progress")
 const DIALOGS_DIR = join(TEST_DIR, "dialogs")
 const ERRORS_DIR = join(TEST_DIR, "errors")
 
+type TestTask = {
+  id: string
+  status: string
+  task: string
+  prompt: string
+  progress: number
+  createdAt: string
+  updatedAt: string
+  completedAt?: string
+  error?: string
+}
+
+type TestError = {
+  id: string
+  title: string
+  message: string
+  code?: string
+  suggestions: string[]
+  actions: Array<{ label: string; action: string }>
+  timestamp: string
+  resolved: boolean
+  resolvedAt?: string
+  resolution?: string
+}
+
+type TestDialog = {
+  id: string
+  type: string
+  title: string
+  message: string
+  options: Array<{ label: string; value: string; variant: string }>
+  timeout?: number
+  defaultValue?: string
+  createdAt: string
+  status: string
+  answer?: string
+  answeredAt?: string
+}
+
+type TestProgress = {
+  overall: {
+    total: number
+    completed: number
+    running: number
+    pending: number
+    failed: number
+    percentage: number
+  }
+  current: {
+    taskName: string
+    status: string
+    progress: number
+    startTime: string
+  } | null
+  history: Array<{ taskName: string; status: string; duration: number }>
+}
+
 // Helper functions
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
@@ -88,7 +145,7 @@ describe("Orchestrator Mode E2E Tests", () => {
     test("should create a new task", () => {
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Test task",
@@ -110,7 +167,7 @@ describe("Orchestrator Mode E2E Tests", () => {
     test("should update task status", () => {
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Test task",
@@ -157,7 +214,7 @@ describe("Orchestrator Mode E2E Tests", () => {
     test("should delete a task", () => {
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Test task",
@@ -177,7 +234,7 @@ describe("Orchestrator Mode E2E Tests", () => {
     test("should handle task completion", () => {
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Test task",
@@ -305,7 +362,7 @@ describe("Orchestrator Mode E2E Tests", () => {
 
     test("should store error information", () => {
       const errorID = generateErrorID()
-      const error = {
+      const error: TestError = {
         id: errorID,
         title: "Test Error",
         message: "This is a test error",
@@ -330,7 +387,7 @@ describe("Orchestrator Mode E2E Tests", () => {
 
     test("should resolve errors", () => {
       const errorID = generateErrorID()
-      const error = {
+      const error: TestError = {
         id: errorID,
         title: "Test Error",
         message: "This is a test error",
@@ -564,7 +621,7 @@ describe("Orchestrator Mode E2E Tests", () => {
   describe("Scenario 5: Confirm Dialog", () => {
     test("should create a dialog", () => {
       const dialogID = generateDialogID()
-      const dialog = {
+      const dialog: TestDialog = {
         id: dialogID,
         type: "confirm",
         title: "Confirm Action",
@@ -588,7 +645,7 @@ describe("Orchestrator Mode E2E Tests", () => {
 
     test("should answer a dialog", () => {
       const dialogID = generateDialogID()
-      const dialog = {
+      const dialog: TestDialog = {
         id: dialogID,
         type: "confirm",
         title: "Confirm Action",
@@ -616,7 +673,7 @@ describe("Orchestrator Mode E2E Tests", () => {
 
     test("should handle dialog timeout", () => {
       const dialogID = generateDialogID()
-      const dialog = {
+      const dialog: TestDialog = {
         id: dialogID,
         type: "confirm",
         title: "Confirm Action",
@@ -638,7 +695,7 @@ describe("Orchestrator Mode E2E Tests", () => {
       const now = Date.now()
       const elapsed = (now - createdAt) / 1000
 
-      if (elapsed >= dialog.timeout) {
+      if (dialog.timeout && elapsed >= dialog.timeout) {
         dialog.status = "timeout"
         dialog.answer = dialog.defaultValue
         dialog.answeredAt = new Date().toISOString()
@@ -1247,7 +1304,7 @@ For each worker:
       // Step 1: Create task
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Create .editorconfig file",
@@ -1259,8 +1316,8 @@ For each worker:
       writeJsonFile(join(TASKS_DIR, `${taskID}.json`), task)
 
       // Step 2: Update progress
-      const progress = {
-        overall: { total: 1, completed: 0, running: 1, failed: 0, percentage: 0 },
+      const progress: TestProgress = {
+        overall: { total: 1, completed: 0, running: 1, pending: 0, failed: 0, percentage: 0 },
         current: { taskName: "Create .editorconfig", status: "running", progress: 0, startTime: now },
         history: [],
       }
@@ -1280,7 +1337,7 @@ For each worker:
       writeJsonFile(join(TASKS_DIR, `${taskID}.json`), task)
 
       // Step 5: Update progress
-      progress.current.progress = 50
+      if (progress.current) progress.current.progress = 50
       progress.overall.percentage = 50
       writeJsonFile(join(PROGRESS_DIR, `${taskID}.json`), progress)
 
@@ -1323,7 +1380,7 @@ For each worker:
       // Step 1: Create task
       const taskID = generateTaskID()
       const now = new Date().toISOString()
-      const task = {
+      const task: TestTask = {
         id: taskID,
         status: "pending",
         task: "Test task",
@@ -1342,7 +1399,7 @@ For each worker:
 
       // Step 3: Create error record
       const errorID = generateErrorID()
-      const error = {
+      const error: TestError = {
         id: errorID,
         title: "Task Failed",
         message: "worker failed",
