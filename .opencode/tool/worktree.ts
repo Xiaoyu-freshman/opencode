@@ -7,22 +7,21 @@ function today(): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`
 }
 
-function worktreeBase(): string {
-  const cwd = process.cwd()
+function worktreeBase(cwd: string): string {
   const parent = cwd.replace(/\/[^/]+$/, "")
   return `${parent}/_worktrees`
 }
 
-function projectName(): string {
-  return process.cwd().split("/").pop() ?? "project"
+function projectName(cwd: string): string {
+  return cwd.split("/").pop() ?? "project"
 }
 
 function branchName(task: string): string {
   return `codex/${task}-${today()}`
 }
 
-function worktreePath(task: string): string {
-  return `${worktreeBase()}/${projectName()}-${task}`
+function worktreePath(task: string, cwd: string): string {
+  return `${worktreeBase(cwd)}/${projectName(cwd)}-${task}`
 }
 
 function detectDefaultBranch(): string {
@@ -76,15 +75,16 @@ Use this tool to isolate worker tasks in separate worktrees.`,
       .default(false)
       .optional(),
   },
-  async execute(args) {
+  async execute(args, context) {
+    const cwd = context.directory
     switch (args.operation) {
       case "create": {
         if (!args.task) throw new Error("task is required for create operation")
         const branch = branchName(args.task)
-        const path = worktreePath(args.task)
+        const path = worktreePath(args.task, cwd)
         const base = args.base ?? detectDefaultBranch()
 
-        runCommand(`mkdir -p "${worktreeBase()}"`)
+        runCommand(`mkdir -p "${worktreeBase(cwd)}"`)
         runCommand(`git worktree add -b "${branch}" "${path}" "${base}"`)
 
         return [
