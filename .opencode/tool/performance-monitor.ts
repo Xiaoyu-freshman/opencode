@@ -132,7 +132,7 @@ function collectMetrics(): PerformanceMetrics {
     completedTasks: tasks.filter((t) => t.status === "completed").length,
     failedTasks: tasks.filter((t) => t.status === "failed").length,
     averageDuration: calculateAverageDuration(tasks),
-    memoryUsage: Math.round((memory.heapUsed / memory.heapTotal) * 100),
+    memoryUsage: Math.min(100, Math.round((memory.heapUsed / memory.heapTotal) * 100)),
     memoryUsedMB: parseFloat((memory.heapUsed / (1024 * 1024)).toFixed(2)),
     storageUsage: 0,
     storageUsedMB: parseFloat((storageUsed / (1024 * 1024)).toFixed(2)),
