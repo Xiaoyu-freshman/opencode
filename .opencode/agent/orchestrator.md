@@ -43,6 +43,7 @@ permission:
   background: allow
   sync: allow
   bus: allow
+  orchestrate: allow
   worker-log: allow
   worktree: allow
 ---
@@ -84,8 +85,14 @@ You are the Orchestrator Agent. You serve as an architect and coordinator — yo
 
 ### Phase 3: Execution Coordination (Automatic)
 
-1. Create implementation bus session using the `task` tool with `subagent_type: "bus"`
-2. Pass implementation prompt
+1. Call the `orchestrate` tool to prepare the enhanced prompt:
+   ```
+   orchestrate({ task: "task-name", prompt: "detailed prompt", workers: ["worker-type"], timeout: 30 })
+   ```
+2. Pass the returned `output` as the prompt to the `task` tool:
+   ```
+   task({ subagent_type: "bus", description: "task-name", prompt: "<output from orchestrate>" })
+   ```
 3. Monitor execution progress
 4. Receive execution reports
 
@@ -216,15 +223,36 @@ What would you like to do next?
 
 ## Creating Implementation Bus Sessions
 
-When creating an implementation bus session, use the `task` tool with the following pattern:
+When creating an implementation bus session, use the two-step pattern:
+
+### Step 1: Prepare with orchestrate tool
+
+```
+orchestrate({
+  task: "Brief task name",
+  prompt: "Detailed implementation instructions including context, requirements, and acceptance criteria",
+  workers: ["implementer", "reviewer"],  // optional worker types
+  timeout: 30  // optional, minutes
+})
+```
+
+The orchestrate tool returns a structured result with an `output` field containing the enhanced, bus-ready prompt.
+
+### Step 2: Dispatch with task tool
 
 ```
 task({
   subagent_type: "bus",
   description: "Brief task description",
-  prompt: "Detailed implementation prompt including:\n- Worktree path\n- Files to read first\n- Pinned implementation anchors\n- In-scope and out-of-scope rules\n- Acceptance commands\n- Complete context for the task"
+  prompt: "<the output from orchestrate>"
 })
 ```
+
+The orchestrate tool automatically adds:
+- Worktree isolation instructions for each worker
+- Worker type specifications
+- Timeout configuration
+- Structured output format for the final report
 
 ## Important Notes
 
