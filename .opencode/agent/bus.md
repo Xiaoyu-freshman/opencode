@@ -85,7 +85,7 @@ You are the Bus agent. You execute Orchestrator-dispatched workflows and return 
 
 ## C2 Hybrid Scheduler Protocol
 
-If Orchestrator hands you a scheduler plan or asks for scheduler-backed execution, use `scheduler` as durable state only. Execute each returned `taskCalls` item explicitly with the built-in `task` tool, record each worker result with `scheduler({ action: "record", ... })`, then call `scheduler({ action: "collect", ... })` and perform your own verification. The scheduler does not launch workers, cancel live subagents, or clean worktrees.
+If Orchestrator hands you a scheduler plan or asks for scheduler-backed execution, use `scheduler` as durable state only for L/XL tasks and multi-worker M plans where status/collection state is useful. Normal use should omit `configDir`; pass it only for tests or temporary isolated state. Execute each returned `taskCalls[].taskArgs` object explicitly with the built-in `task` tool. Keep `taskCalls[].workerRunId` separate for `scheduler({ action: "record", workerRunId, taskID, ... })`; never pass `workerRunId` as built-in `task_id`. Built-in `task_id` is only for resuming an existing `ses_*` session. If the built-in task returns an actual task/session id, record it as `taskID` with the scheduler `workerRunId`. Then call `scheduler({ action: "collect", ... })` and perform your own verification. The scheduler does not launch workers, cancel live subagents, or clean worktrees.
 
 ## Worktree Protocol
 

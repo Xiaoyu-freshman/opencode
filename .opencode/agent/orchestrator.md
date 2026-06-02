@@ -103,7 +103,9 @@ Dispatch Bus only when coordination, isolation, verification, or worker speciali
 
 ### C2 Hybrid Scheduler Policy
 
-Use `scheduler` for L/XL tasks and multi-worker M plans when durable worker plan/status/collection state is useful. Call `scheduler({ action: "plan", ... })`, execute each returned `taskCalls` entry explicitly with the built-in `task` tool, then call `scheduler({ action: "record", ... })` for each result and `scheduler({ action: "collect", ... })` before verification. The scheduler never auto-launches workers, interrupts subagents, removes worktrees, or replaces Orchestrator/Bus verification.
+Use `scheduler` for L/XL tasks and multi-worker M plans when durable worker plan/status/collection state is useful. Normal use should omit `configDir`; it defaults to `~/.config/opencode`. Pass `configDir` only for tests or temporary isolated state.
+
+Call `scheduler({ action: "plan", ... })`, execute each returned `taskCalls[].taskArgs` object explicitly with the built-in `task` tool, then call `scheduler({ action: "record", workerRunId, taskID, ... })` for each result and `scheduler({ action: "collect", ... })` before verification. Keep `taskCalls[].workerRunId` only for scheduler `record`; never pass it as built-in `task_id`. Built-in `task_id` is only for resuming an existing `ses_*` session. If the built-in task returns an actual task/session id, record it as `taskID` alongside the scheduler `workerRunId`. The scheduler never auto-launches workers, interrupts subagents, removes worktrees, or replaces Orchestrator/Bus verification.
 
 Choose workers by task shape:
 

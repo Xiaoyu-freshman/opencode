@@ -202,6 +202,15 @@ describe("real orchestrator project tools", () => {
     expect(schedulerPlan).toMatchObject({ success: true, schedulerTaskId: `${id}-scheduler` })
     if (!isRecord(schedulerPlan) || !Array.isArray(schedulerPlan.taskCalls)) throw new Error("scheduler plan missing taskCalls")
     expect(schedulerPlan.taskCalls).toHaveLength(1)
+    expect(schedulerPlan.taskCalls[0]).toMatchObject({
+      workerRunId: `${id}-scheduler-worker-1`,
+      taskArgs: {
+        subagent_type: "bus-worker-diagnostic",
+        description: "Real scheduler smoke worker",
+        prompt: "Validate scheduler state only.",
+      },
+    })
+    expect(schedulerPlan.taskCalls[0].taskArgs.task_id).toBeUndefined()
     expect(parseJsonOutput(await executeTool(scheduler.default, { action: "status", schedulerTaskId: `${id}-scheduler` }))).toMatchObject({
       success: true,
       status: "planned",

@@ -149,11 +149,14 @@ async function plan(args: Record<string, unknown>, context: { directory: string 
     task,
     taskCalls: task.workerRuns.map((worker) => ({
       workerRunId: worker.id,
-      subagent_type: worker.subagent_type,
-      description: worker.description,
-      prompt: worker.prompt,
+      taskArgs: {
+        subagent_type: worker.subagent_type,
+        description: worker.description,
+        prompt: worker.prompt,
+      },
       acceptanceCriteria: worker.acceptanceCriteria,
-      note: "Orchestrator/Bus must call task(...) explicitly, then call scheduler record with this workerRunId and the result.",
+      recordInstruction:
+        "Call the built-in task tool with taskArgs only. Do not pass workerRunId as task_id. After task returns, call scheduler record with this workerRunId and the actual ses_* task/session id if available.",
     })),
   }
 }
@@ -269,10 +272,15 @@ function normalizeWorkers(value: unknown) {
     if (!isRecord(item)) throw new Error(`workers[${index}] must be a string or object`)
     const workerType = stringField(item, "subagent_type") ?? stringField(item, "workerType") ?? stringField(item, "type")
     const description = stringField(item, "description") ?? stringField(item, "name") ?? workerType
-    const prompt = stringField(item, "prompt")
+    const prompt =
+      stringField(item, "prompt") ??
+      stringField(item, "instructions") ??
+      stringField(item, "instruction") ??
+      stringField(item, "task") ??
+      description
     if (!workerType) throw new Error(`workers[${index}].subagent_type is required`)
     if (!description) throw new Error(`workers[${index}].description is required`)
-    if (!prompt) throw new Error(`workers[${index}].prompt is required`)
+    if (!prompt) throw new Error(`workers[${index}].prompt or instructions is required`)
     return {
       name: stringField(item, "name") ?? description,
       subagent_type: workerType,

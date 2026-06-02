@@ -57,10 +57,15 @@ describe("scheduler tool", () => {
       expect(planned.taskCalls).toHaveLength(2)
       expect(planned.taskCalls[0]).toMatchObject({
         workerRunId: `${schedulerTaskId}-worker-1`,
-        subagent_type: "bus-worker-diagnostic",
+        taskArgs: {
+          subagent_type: "bus-worker-diagnostic",
+          description: "Inspect scheduler behavior",
+          prompt: "Inspect scheduler behavior and report back.",
+        },
         acceptanceCriteria: ["worker reports result"],
       })
-      expect(planned.taskCalls[0].note).toContain("task(...)")
+      expect(planned.taskCalls[0].taskArgs.task_id).toBeUndefined()
+      expect(planned.taskCalls[0].recordInstruction).toContain("workerRunId")
       expect(existsSync(join(configDir, "scheduler", `${schedulerTaskId}.json`))).toBe(true)
 
       const initialStatus = parseJsonOutput(await scheduler.execute({ action: "status", configDir, schedulerTaskId }, context))
@@ -75,7 +80,7 @@ describe("scheduler tool", () => {
             schedulerTaskId,
             workerRunId: `${schedulerTaskId}-worker-1`,
             status: "completed",
-            taskID: "task-123",
+            taskID: "ses_task_123",
             resultSummary: "diagnostic complete",
             worktreePath: "/tmp/worktree-record-only",
             artifacts: ["diagnostic.md"],
@@ -84,6 +89,7 @@ describe("scheduler tool", () => {
         ),
       )
       expect(recorded).toMatchObject({ success: true, status: "running" })
+      expect(recorded.task.workerRuns[0]).toMatchObject({ id: `${schedulerTaskId}-worker-1`, taskID: "ses_task_123" })
 
       const collected = parseJsonOutput(await scheduler.execute({ action: "collect", configDir, schedulerTaskId }, context))
       expect(collected).toMatchObject({ success: true, requiresOrchestratorVerification: true })
@@ -100,6 +106,40 @@ describe("scheduler tool", () => {
       expect(cleaned).toMatchObject({ success: true, schedulerTaskId })
       expect(cleaned.message).toContain("scheduler state file only")
       expect(existsSync(join(configDir, "scheduler", `${schedulerTaskId}.json`))).toBe(false)
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test("derives worker prompts from instruction aliases", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-prompt-"))
+    const schedulerTaskId = "scheduler-prompt-test"
+
+    try {
+      const planned = parseJsonOutput(
+        await scheduler.execute(
+          {
+            action: "plan",
+            configDir,
+            schedulerTaskId,
+            title: "Scheduler prompt derivation",
+            workers: [
+              {
+                subagent_type: "bus-worker-diagnostic",
+                description: "Inspect scheduler prompt aliases",
+                instructions: "Use this instruction text as the built-in task prompt.",
+              },
+            ],
+          },
+          context,
+        ),
+      )
+
+      expect(planned.taskCalls[0]).toMatchObject({
+        workerRunId: `${schedulerTaskId}-worker-1`,
+        taskArgs: { prompt: "Use this instruction text as the built-in task prompt." },
+      })
+      expect(planned.taskCalls[0].taskArgs.task_id).toBeUndefined()
     } finally {
       await rm(configDir, { recursive: true, force: true })
     }
