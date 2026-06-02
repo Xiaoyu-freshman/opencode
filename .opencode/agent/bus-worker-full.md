@@ -1,6 +1,6 @@
 ---
 mode: subagent
-model: openai/gpt-5.3-codex
+model: openai/gpt-5.4-mini
 description: Full-privileged worker — can read, write, and run bash. Requires explicit Bus approval before launch.
 permission:
   "*": allow

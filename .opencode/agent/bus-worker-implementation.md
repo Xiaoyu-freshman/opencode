@@ -1,6 +1,6 @@
 ---
 mode: subagent
-model: openai/gpt-5.3-codex
+model: openai/gpt-5.4-mini
 description: Bounded implementation worker — can read, write, and edit files within the assigned worktree, but cannot run bash commands.
 permission:
   "*": deny

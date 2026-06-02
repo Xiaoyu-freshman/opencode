@@ -56,6 +56,7 @@ permission:
   memory-manager: allow
   storage-manager: allow
   performance-monitor: allow
+  orchestrator-model-preset: allow
   worker-log: allow
   worktree: allow
   scheduler: allow
@@ -86,11 +87,20 @@ Translate high-level project requests into internal execution workflows yourself
 ## Layered Model Routing Policy
 
 - Orchestrator uses premium reasoning for architecture, product, and risk decisions.
-- Bus and diagnostic workers use `openai/gpt-5.4-mini` by default for coordination and read-only exploration.
-- Implementation and full workers use `openai/gpt-5.3-codex` by default because they write or review code.
-- Escalate to a stronger model or ask the user when quality or risk requires it; do not silently downgrade code-writing workers below their default.
+- Bus, diagnostic, implementation, and full workers use `openai/gpt-5.4-mini` by default for account-compatible execution.
+- Escalate to a stronger account-supported model, such as Orchestrator's premium model, or ask the user when quality or risk requires it.
 - Keep model routing internal to Product Mode. Normal users should not operate model IDs unless they ask.
-- `openai/gpt-5.3-codex-spark` is only a future optional choice for low-risk docs, tests, or simple implementation, not the default for any existing agent.
+- Do not make Codex-only or account-restricted model IDs the default for any worker; use them only when the active account supports them and the user or Orchestrator explicitly chooses that path.
+
+### Lower-Agent Model Preset Workflow
+
+When the user asks to change the Bus/Worker model preset, keep the top-level Orchestrator model unchanged and use `orchestrator-model-preset` as the configuration helper:
+
+1. Call `orchestrator-model-preset({ action: "list" })` to discover model IDs visible in current OpenCode config and agent files.
+2. Ask the user to choose one discovered model or provide a custom `provider/model` ID.
+3. By default call `orchestrator-model-preset({ action: "apply", scope: "global", model: "<chosen provider/model>" })` to update global `bus`, `bus-worker-diagnostic`, `bus-worker-implementation`, and `bus-worker-full` only.
+4. Use `scope: "project"` only when the user explicitly asks for a project-local Bus/Worker preset.
+5. Tell the user to quit and restart OpenCode/Desktop because agent configuration is loaded at startup and is not hot-reloaded.
 
 ## Project-Level Workflow
 

@@ -29,8 +29,15 @@ const requiredTools = [
   "performance-monitor.ts",
   "worktree.ts",
   "scheduler.ts",
+  "orchestrator-model-preset.ts",
   "orchestrator-health.ts",
 ]
+const lowerAgentFiles = new Set([
+  "bus.md",
+  "bus-worker-implementation.md",
+  "bus-worker-full.md",
+  "bus-worker-diagnostic.md",
+])
 const managedFiles = [
   ...requiredAgents.map((file) => `agent/${file}`),
   ...requiredTools.map((file) => `tool/${file}`),
@@ -65,7 +72,7 @@ async function install() {
 
   for (const file of managedFiles) {
     await mkdir(dirname(join(globalDir, file)), { recursive: true })
-    await cp(join(repo, ".opencode", file), join(globalDir, file))
+    await writeManagedFile(file)
   }
 
   await ensurePluginDependency()
@@ -73,6 +80,22 @@ async function install() {
   console.log(`Installed global Orchestrator into ${globalDir}`)
   console.log(`Backup written to ${backupDir}`)
   console.log("Next steps: restart OpenCode/Desktop, then run the orchestrator-health tool.")
+}
+
+async function writeManagedFile(file: string) {
+  const source = join(repo, ".opencode", file)
+  const target = join(globalDir, file)
+  if (!file.startsWith("agent/") || !lowerAgentFiles.has(file.replace(/^agent\//, "")) || !existsSync(target)) {
+    await cp(source, target)
+    return
+  }
+
+  const existingModel = extractFrontmatterModel(await readFile(target, "utf8"))
+  if (!existingModel) {
+    await cp(source, target)
+    return
+  }
+  await writeFile(target, replaceFrontmatterModel(await readFile(source, "utf8"), existingModel))
 }
 
 async function rollback() {
@@ -153,4 +176,14 @@ function isSafeNpmVersion(value: unknown): value is string {
     !value.startsWith("workspace:") &&
     !value.startsWith("file:")
   )
+}
+
+function extractFrontmatterModel(content: string) {
+  return content.match(/^model:\s*([^\s#]+)/m)?.[1]
+}
+
+function replaceFrontmatterModel(content: string, model: string) {
+  if (!content.startsWith("---\n")) return `---\nmodel: ${model}\n---\n\n${content}`
+  if (/^model:\s*[^\s#]+/m.test(content)) return content.replace(/^model:\s*[^\s#]+/m, `model: ${model}`)
+  return content.replace(/^---\n/, `---\nmodel: ${model}\n`)
 }

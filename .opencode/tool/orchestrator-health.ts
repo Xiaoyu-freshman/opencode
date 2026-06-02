@@ -27,6 +27,7 @@ export const requiredTools = [
   "performance-monitor.ts",
   "worktree.ts",
   "scheduler.ts",
+  "orchestrator-model-preset.ts",
   "orchestrator-health.ts",
 ]
 
@@ -184,6 +185,7 @@ async function smokeTools(configDir: string): Promise<Check[]> {
   )
   checks.push(await smokeTool(configDir, "scheduler", { action: "status", configDir, schedulerTaskId: `${id}-scheduler` }, context))
   checks.push(await smokeTool(configDir, "scheduler", { action: "cleanup", configDir, schedulerTaskId: `${id}-scheduler` }, context))
+  checks.push(await smokeTool(configDir, "orchestrator-model-preset", { action: "status", configDir }, context))
 
   await rm(join(configDir, "tasks", `${id}-task.json`), { force: true }).catch(() => {})
   await rm(join(configDir, "scheduler", `${id}-scheduler.json`), { force: true }).catch(() => {})
