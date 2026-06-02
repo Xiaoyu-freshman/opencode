@@ -10,6 +10,7 @@ Record formal Desktop/global Orchestrator validation of C2 Hybrid Scheduler afte
 - Client: formal Desktop `/Applications/OpenCode.app`
 - Global Orchestrator install: `~/.config/opencode`
 - OpenCode repo commit: `b38da421a fix(orchestrator): harden scheduler task calls`
+- Scheduler UX hardening commit validated: `e07027c7d fix(orchestrator): improve scheduler protocol errors`
 - Projects tested:
   - `/Users/tom/Documents/Project/snowflow`
   - `/Users/tom/Documents/Project/ski-video-review`
@@ -33,6 +34,7 @@ Record formal Desktop/global Orchestrator validation of C2 Hybrid Scheduler afte
 | C | snowflow | Multi-worker read-only | Passed | `scheduler-mpw42luf-2eowqb` | `scheduler-mpw42luf-2eowqb-worker-1` / `ses_17980fa86ffeFWj7fwbLUYbUoh`; `scheduler-mpw42luf-2eowqb-worker-2` / `ses_17980fa6dffeidPRATzE4JGi6m` | One initial collect parameter mistake; retry succeeded. Treat as UX/SOP caution, not product failure. |
 | D | ski-video-review | Multi-worker read-only | Passed | `scheduler-mpw4dc0e-hkkqsb` | `scheduler-mpw4dc0e-hkkqsb-worker-1` / `ses_179795508ffePX3p8zCpqj5KO2`; `scheduler-mpw4dc0e-hkkqsb-worker-2` / `ses_1797954ffffeEPF9a7lJ7QfDvz` | Read-only diagnostics. |
 | E | ski-video-review | Implementation worker + review worker in disposable worktree | Passed | `scheduler-mpw4xhr2-xvxyla` | `scheduler-mpw4xhr2-xvxyla-worker-1` / `ses_1796af171ffeQlLZjrx4xojyvP`; `scheduler-mpw4xhr2-xvxyla-worker-2` / `ses_1796af166ffe4aXr5syrrRdMGs` | Docs-only implementation smoke in disposable worktree. |
+| F | Desktop/global scheduler | Scheduler UX negative smoke; no worker launch | Passed | n/a intentional error smoke | n/a | Confirmed scheduler protocol-error recovery hints in formal Desktop after reinstall and restart. |
 
 ## Test E details
 
@@ -46,6 +48,15 @@ Record formal Desktop/global Orchestrator validation of C2 Hybrid Scheduler afte
 - Main workspace had pre-existing untracked `docs/prompts/` and other prompt files; they were not created by this test.
 - Disposable worktree and branch were later cleaned up manually after user confirmation.
 
+## Test F details
+
+- Purpose: verify new scheduler error hints are loaded in formal Desktop and help recover from common protocol mistakes.
+- `record` negative smoke used missing/nonexistent `schedulerTaskId` `scheduler-missing-error-smoke`, `workerRunId` `scheduler-missing-error-smoke-worker-1`, status `completed`, taskID `ses_error_smoke`, and no `configDir`.
+- Expected and observed `record` hints included `schedulerTaskId`, `configDir`, `cleaned up`, and `~/.config/opencode/scheduler`.
+- `collect` negative smoke used no `schedulerTaskId` and no `configDir`.
+- Expected and observed `collect` hints included `scheduler({ action: "collect", schedulerTaskId })`, `Collect only after...`, and `cleanup/configDir mismatch`.
+- Safety: no scheduler plan, no built-in task launch, no workers, no file modifications, no secrets, and no bash.
+
 ## Findings
 
 - Single-worker and multi-worker flows passed across both real projects.
@@ -56,6 +67,7 @@ Record formal Desktop/global Orchestrator validation of C2 Hybrid Scheduler afte
 - Tests did not access secrets, did not send real DingTalk messages, and did not run dangerous commands.
 - `ski-video-review` had pre-existing untracked `docs/prompts/`; tests did not create it.
 - Test C exposed a collect-parameter UX/SOP caution, but retry succeeded and no product failure was observed.
+- Test F confirmed Desktop loaded scheduler UX hardening and negative protocol errors produced the expected recovery hints.
 
 ## Resolved issues
 
@@ -84,4 +96,4 @@ For future Desktop/global Orchestrator C2 usage:
 ## Recommended next steps
 
 - Keep C2 Hybrid Scheduler validated for read-only single-worker, multi-worker, and docs-only implementation smoke Desktop workflows.
-- Possible next phase: stronger scheduler UX/error messages, implementation smoke with review/test in a disposable repo or worktree, and optional C3 design.
+- Possible next phase: optional C3 design, broader implementation validation with real code/config in a disposable repo or worktree, or stress/concurrency validation.
