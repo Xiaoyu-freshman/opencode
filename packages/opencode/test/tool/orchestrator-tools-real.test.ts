@@ -49,6 +49,7 @@ describe("real orchestrator project tools", () => {
     cleanupFiles.add(join(configDir, "logs", `${id}-session.json`))
     cleanupFiles.add(join(configDir, "dialogs", `${id}-dialog.json`))
     cleanupFiles.add(join(configDir, "errors", `${id}-error.json`))
+    cleanupFiles.add(join(configDir, "scheduler", `${id}-scheduler.json`))
 
     const taskState = await importRealTool("task-state")
     const createdTask = parseJsonOutput(
@@ -181,6 +182,33 @@ describe("real orchestrator project tools", () => {
     expect(output).toContain("- **implementer**")
     expect(output).toContain("- **reviewer**")
     expect(output).toContain("## Structured Output")
+
+    const scheduler = await importRealTool("scheduler")
+    const schedulerPlan = parseJsonOutput(
+      await executeTool(scheduler.default, {
+        action: "plan",
+        schedulerTaskId: `${id}-scheduler`,
+        title: "Real Scheduler Smoke",
+        tier: "M",
+        workers: [
+          {
+            subagent_type: "bus-worker-diagnostic",
+            description: "Real scheduler smoke worker",
+            prompt: "Validate scheduler state only.",
+          },
+        ],
+      }),
+    )
+    expect(schedulerPlan).toMatchObject({ success: true, schedulerTaskId: `${id}-scheduler` })
+    if (!isRecord(schedulerPlan) || !Array.isArray(schedulerPlan.taskCalls)) throw new Error("scheduler plan missing taskCalls")
+    expect(schedulerPlan.taskCalls).toHaveLength(1)
+    expect(parseJsonOutput(await executeTool(scheduler.default, { action: "status", schedulerTaskId: `${id}-scheduler` }))).toMatchObject({
+      success: true,
+      status: "planned",
+    })
+    expect(parseJsonOutput(await executeTool(scheduler.default, { action: "cleanup", schedulerTaskId: `${id}-scheduler` }))).toMatchObject({
+      success: true,
+    })
   })
 })
 

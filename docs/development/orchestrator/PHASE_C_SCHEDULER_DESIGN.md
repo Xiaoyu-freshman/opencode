@@ -138,6 +138,13 @@ Revised C2 plan:
 - Use existing `worktree`, `task-state`, `log-viewer`, `progress-display`, and `concurrency-manager` tools as advisory/state components, but do not claim plugin-level hard concurrency over `task` execution until a core launch capability exists.
 - Revisit a built-in scheduler tool only after the hybrid path proves the data model, reporting, and workflows are useful enough to justify moving launch control into core.
 
+C2 implementation note:
+
+- The hybrid `scheduler` custom tool now exists at `.opencode/tool/scheduler.ts` and stores durable JSON task files under `~/.config/opencode/scheduler/` by default.
+- It implements `plan`, `status`, `record`, `collect`, `cancel`, and `cleanup`; `cleanup` removes only scheduler state files.
+- `plan` returns `taskCalls` for Orchestrator or Bus to execute explicitly with the built-in `task` tool, and `collect` returns `requiresOrchestratorVerification: true` to preserve the Phase B verification boundary.
+- The tool intentionally does not import OpenCode internals, call built-in `task`, interrupt live subagents, remove worktrees, or provide hard concurrency enforcement.
+
 Risks and caveats:
 
 - Hybrid scheduling is not a hard scheduler. Concurrency depends on Orchestrator/Bus following the returned plan and on explicit `task` calls, so it remains prompt-assisted execution with better state.

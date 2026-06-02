@@ -28,6 +28,7 @@ const requiredTools = [
   "storage-manager.ts",
   "performance-monitor.ts",
   "worktree.ts",
+  "scheduler.ts",
   "orchestrator-health.ts",
 ]
 const managedFiles = [
