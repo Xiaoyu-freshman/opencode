@@ -93,6 +93,16 @@ For requests such as “make an overall project plan,” “continue the project
 5. Execute after confirmation when required, keeping Bus/Worker/Scheduler mechanics internal.
 6. Verify the result, report changed files and validation, state caveats, and propose the next project step.
 
+## Parallel Implementation Policy
+
+For M/L/XL implementation work, actively search for safe parallelizable implementation slices, not only parallel diagnostics. Prefer parallel development when slices can own separate files/modules, expose clear interfaces, and validate independently.
+
+Do not parallelize implementation when slices require competing edits to the same files/modules, have unclear contracts, include migrations, data/destructive operations, or create high conflict risk. When serial execution is safer, explain the critical path and why it must be serial.
+
+Implementation plans should identify parallel groups, dependency chains, conflict risks, file/module ownership, integration strategy, and final validation. Each slice must specify worker type, worktree requirement, owned files/modules, off-limits files/modules, acceptance criteria, and validation commands.
+
+Parallel implementation must end with integration, review, and validation before final user-facing completion. Keep all Bus/Worker/Scheduler mechanics internal to Orchestrator product mode.
+
 ## Task-Tier SOP
 
 Classify every request before choosing a workflow:
@@ -131,6 +141,7 @@ Choose workers by task shape:
 - **Full**: Diagnostic plus implementation plus review/verification for L and XL tasks.
 
 Include the task tier, execution policy, scope boundaries, confirmation status, worker selection, acceptance criteria, and validation commands in the Bus prompt.
+For implementation tasks, also include parallel groups, dependency chains, file/module ownership, off-limits areas, conflict risks, and the integration/validation strategy.
 
 ### Result Report Policy
 
@@ -211,9 +222,10 @@ Use this full workflow for L and XL tasks. For S and M tasks, follow the lighter
 - Pros and cons analysis: ...
 
 ### Task Decomposition
-- Task 1: ... (Worker: implementation)
-- Task 2: ... (Worker: diagnostic)
-- Task 3: ... (Worker: implementation)
+- Parallel Group A: Task 1 ... (Worker: implementation, owns: ..., depends on: none)
+- Parallel Group A: Task 2 ... (Worker: implementation, owns: ..., depends on: none)
+- Dependency Chain: Task 3 ... (Worker: diagnostic/review, depends on: Group A)
+- Serial Critical Path, if any: ... (why not parallelized)
 
 ### Estimated Time
 - Task 1: 5 minutes
@@ -231,17 +243,27 @@ Do you confirm this solution?
 
 ### Task 1: [Task Name]
 - **Worker Type**: implementation
+- **Parallel Group / Dependencies**: ...
+- **Worktree Required**: yes/no
+- **Owned Files/Modules**: ...
+- **Off-Limits Files/Modules**: ...
 - **Objective**: ...
 - **Input**: ...
 - **Output**: ...
 - **Acceptance Criteria**: ...
+- **Validation Commands**: ...
 
 ### Task 2: [Task Name]
 - **Worker Type**: diagnostic
+- **Parallel Group / Dependencies**: ...
+- **Worktree Required**: yes/no
+- **Owned Files/Modules**: ...
+- **Off-Limits Files/Modules**: ...
 - **Objective**: ...
 - **Input**: ...
 - **Output**: ...
 - **Acceptance Criteria**: ...
+- **Validation Commands**: ...
 
 Do you need to modify the task decomposition?
 ```

@@ -116,6 +116,16 @@ Before spawning a worker:
     - Delete the worker branch: `git branch -d codex/<task>-YYYYMMDD`
 6. Clean up with `worktree.remove({ branch: "codex/<task>-YYYYMMDD" })` when the workflow does not require preserving the worktree for review.
 
+## Parallel Worker Implementation Protocol
+
+- When Orchestrator assigns independent implementation slices, dispatch implementation workers in parallel where possible.
+- Create one worktree per implementation worker by default.
+- Worker prompts must include explicit owned files/modules and off-limits files/modules.
+- Avoid two implementation workers editing the same files/modules unless Orchestrator explicitly designed an integration strategy.
+- After parallel workers complete, review each diff, check scope and conflicts, decide and record integration order, then run final validation after integration.
+- Diagnostic workers can run in parallel, but do not substitute diagnostics for parallel implementation when development slices are safe.
+- Do not merge, commit, or push unless Orchestrator or the user explicitly authorized it.
+
 ## Security Rules
 
 Before launching a worker, sanitize the prompt:
