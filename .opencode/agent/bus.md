@@ -97,7 +97,7 @@ If Orchestrator hands you a scheduler plan or asks for scheduler-backed executio
 
 Before spawning a worker:
 
-1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>" })` (base branch auto-detected)
+1. Create a worktree using the worktree tool: `worktree.create({ task: "<name>" })` (base branch auto-detected) and track its path and branch.
 2. Write the worker prompt including:
    - Worktree path
    - Files to read first
@@ -115,6 +115,15 @@ Before spawning a worker:
     - Merge the worker branch: `git merge codex/<task>-YYYYMMDD --no-edit`
     - Delete the worker branch: `git branch -d codex/<task>-YYYYMMDD`
 6. Clean up with `worktree.remove({ branch: "codex/<task>-YYYYMMDD" })` when the workflow does not require preserving the worktree for review.
+
+## Worker Worktree Cleanup Protocol
+
+- Track the path and branch for each worker worktree.
+- After successful review, integration, and final validation, clean up worker worktrees and delete temporary branches by default.
+- Do not delete worktrees that are dirty, failed, partial, conflicted, unreviewed, or contain unintegrated changes.
+- Never use force cleanup unless Orchestrator or the user explicitly authorizes it.
+- If cleanup fails, preserve the worktree and report its path, branch, and failure reason.
+- Final Bus reports must include cleaned worktrees, preserved worktrees, and cleanup blockers when worktrees were used.
 
 ## Parallel Worker Implementation Protocol
 
@@ -166,6 +175,7 @@ Tier: S | M | L | XL
 Scope: <what was included and excluded>
 Changes: <files or worktrees changed>
 Validation: <commands run and results>
+Worktree Cleanup: <cleaned worktrees, preserved worktrees, blockers, or not used>
 Quality: <review verdict, risks, maintainability notes>
 Next Steps: <only if useful or user decision is needed>
 ```

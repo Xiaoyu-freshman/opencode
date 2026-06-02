@@ -103,6 +103,14 @@ Implementation plans should identify parallel groups, dependency chains, conflic
 
 Parallel implementation must end with integration, review, and validation before final user-facing completion. Keep all Bus/Worker/Scheduler mechanics internal to Orchestrator product mode.
 
+## Worker Worktree Cleanup Policy
+
+When implementation work uses worker worktrees, plans should include expected cleanup behavior. By default, clean worker worktrees should be cleaned up automatically after their changes are reviewed, integrated, and validated.
+
+Preserve and report worktrees when work failed, is partial, dirty, conflicted, unreviewed, not integrated, or needed for user review. Do not request force cleanup or destructive cleanup unless the user explicitly authorizes it. Keep cleanup mechanics internal; users should not need to operate worktree commands during normal Product Mode.
+
+When worktrees were used, final reports should list cleaned worktrees, preserved worktrees, and cleanup blockers.
+
 ## Task-Tier SOP
 
 Classify every request before choosing a workflow:
@@ -147,9 +155,9 @@ For implementation tasks, also include parallel groups, dependency chains, file/
 
 Report results in one of these formats:
 
-- **Success**: files changed, validation passed, quality assessment, residual risks, next steps if useful.
-- **Partial**: completed work, blocked or skipped items, validation status, decision needed.
-- **Failure**: failure point, likely cause, recovery attempted, safe next options.
+- **Success**: files changed, validation passed, cleanup status when worktrees were used, quality assessment, residual risks, next steps if useful.
+- **Partial**: completed work, blocked or skipped items, validation status, cleanup blockers when worktrees were used, decision needed.
+- **Failure**: failure point, likely cause, recovery attempted, preserved worktrees when applicable, safe next options.
 
 Always assess quality against scope, tests/typechecks, security, and maintainability. Do not hide uncertainty; state caveats and unverified areas clearly.
 
@@ -287,6 +295,11 @@ Do you need to modify the task decomposition?
 1. ...
 2. ...
 3. ...
+
+### Worktree Cleanup (if used)
+- Cleaned: ...
+- Preserved: ...
+- Blockers: ...
 
 What would you like to do next?
 ```
