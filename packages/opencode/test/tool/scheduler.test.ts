@@ -145,6 +145,89 @@ describe("scheduler tool", () => {
     }
   })
 
+  test("record missing scheduler task includes recovery hints", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-missing-record-"))
+
+    try {
+      const error = await schedulerError({
+        action: "record",
+        configDir,
+        schedulerTaskId: "scheduler-missing-record",
+        workerRunId: "scheduler-missing-record-worker-1",
+        status: "completed",
+        taskID: "ses_task_123",
+      })
+
+      expect(error).toContain("Verify schedulerTaskId")
+      expect(error).toContain("do not pass a project repo path as configDir")
+      expect(error).toContain("cleaned up")
+      expect(error).toContain("~/.config/opencode/scheduler")
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test("record rejects workerRunId-shaped taskID with protocol hints", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-taskid-"))
+    const schedulerTaskId = "scheduler-taskid-test"
+
+    try {
+      await scheduler.execute(
+        {
+          action: "plan",
+          configDir,
+          schedulerTaskId,
+          title: "Scheduler taskID misuse",
+          workers: [{ subagent_type: "bus-worker-diagnostic", description: "Inspect taskID misuse", prompt: "Inspect." }],
+        },
+        context,
+      )
+
+      const equalError = await schedulerError({
+        action: "record",
+        configDir,
+        schedulerTaskId,
+        workerRunId: `${schedulerTaskId}-worker-1`,
+        status: "completed",
+        taskID: `${schedulerTaskId}-worker-1`,
+      })
+      expect(equalError).toContain("workerRunId is not built-in task_id")
+      expect(equalError).toContain("ses_*")
+      expect(equalError).toContain("New worker launches should omit task_id")
+      expect(equalError).toContain("taskCalls[i].taskArgs")
+
+      const shapedError = await schedulerError({
+        action: "record",
+        configDir,
+        schedulerTaskId,
+        workerRunId: `${schedulerTaskId}-worker-1`,
+        status: "completed",
+        taskID: "scheduler-other-worker-2",
+      })
+      expect(shapedError).toContain("workerRunId is not built-in task_id")
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test("collect missing scheduler task includes usage and cleanup hints", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-missing-collect-"))
+
+    try {
+      const missingIdError = await schedulerError({ action: "collect", configDir })
+      expect(missingIdError).toContain('scheduler({ action: "collect", schedulerTaskId })')
+      expect(missingIdError).toContain("Collect only after all intended worker records are written")
+      expect(missingIdError).toContain("cleanup/configDir mismatch")
+
+      const notFoundError = await schedulerError({ action: "collect", configDir, schedulerTaskId: "scheduler-missing-collect" })
+      expect(notFoundError).toContain('scheduler({ action: "collect", schedulerTaskId })')
+      expect(notFoundError).toContain("Collect only after all intended worker records are written")
+      expect(notFoundError).toContain("cleanup/configDir mismatch")
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  })
+
   test("returns plugin result protocol and avoids Bun globals", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-protocol-"))
 
@@ -163,6 +246,15 @@ describe("scheduler tool", () => {
 function parseJsonOutput(result: unknown) {
   if (!isRecord(result) || typeof result.output !== "string") throw new Error("Tool result must be { output: string }")
   return JSON.parse(result.output)
+}
+
+async function schedulerError(args: Parameters<typeof scheduler.execute>[0]) {
+  try {
+    await scheduler.execute(args, context)
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  throw new Error("Expected scheduler to throw")
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

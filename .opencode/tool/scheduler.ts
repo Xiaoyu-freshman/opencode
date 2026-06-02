@@ -156,7 +156,7 @@ async function plan(args: Record<string, unknown>, context: { directory: string 
       },
       acceptanceCriteria: worker.acceptanceCriteria,
       recordInstruction:
-        "Call the built-in task tool with taskArgs only. Do not pass workerRunId as task_id. After task returns, call scheduler record with this workerRunId and the actual ses_* task/session id if available.",
+        "Launch by calling the built-in task tool with taskCalls[i].taskArgs only; do not add task_id and never pass workerRunId as task_id. After task returns, call scheduler record with this workerRunId and the actual ses_* task/session id returned by the task tool if available.",
     })),
   }
 }
@@ -181,8 +181,13 @@ async function status(args: Record<string, unknown>) {
 async function record(args: Record<string, unknown>) {
   if (typeof args.workerRunId !== "string") throw new Error("workerRunId is required for record")
   if (!isWorkerStatus(args.status)) throw new Error("status is required for record")
+  if (typeof args.taskID === "string" && isLikelyWorkerRunTaskId(args.taskID, args.workerRunId)) {
+    throw new Error(
+      `Invalid record taskID ${args.taskID}: workerRunId is not built-in task_id. The built-in task_id/session id must be the actual ses_* id returned by the task tool. New worker launches should omit task_id; call the built-in task with taskCalls[i].taskArgs only.`,
+    )
+  }
 
-  const task = await readTask(args)
+  const task = await readTask(args, "record")
   const worker = task.workerRuns.find((item) => item.id === args.workerRunId)
   if (!worker) throw new Error(`Worker run ${args.workerRunId} not found`)
 
@@ -205,7 +210,7 @@ async function record(args: Record<string, unknown>) {
 }
 
 async function collect(args: Record<string, unknown>) {
-  const task = await readTask(args)
+  const task = await readTask(args, "collect")
   return {
     success: true,
     schedulerTaskId: task.id,
@@ -291,11 +296,11 @@ function normalizeWorkers(value: unknown) {
   })
 }
 
-async function readTask(args: Record<string, unknown>) {
-  const schedulerTaskId = requireSchedulerTaskId(args)
+async function readTask(args: Record<string, unknown>, action?: string) {
+  const schedulerTaskId = requireSchedulerTaskId(args, action)
   if (!safeId(schedulerTaskId)) throw new Error("schedulerTaskId contains unsupported characters")
   const path = taskPath(args, schedulerTaskId)
-  if (!existsSync(path)) throw new Error(`Scheduler task ${schedulerTaskId} not found`)
+  if (!existsSync(path)) throw new Error(schedulerTaskNotFoundMessage(action, schedulerTaskId))
   return JSON.parse(await readFile(path, "utf8")) as SchedulerTask
 }
 
@@ -313,9 +318,28 @@ function taskPath(args: Record<string, unknown>, schedulerTaskId: string) {
   return join(stateDir(args), `${schedulerTaskId}.json`)
 }
 
-function requireSchedulerTaskId(args: Record<string, unknown>) {
+function requireSchedulerTaskId(args: Record<string, unknown>, action?: string) {
   if (typeof args.schedulerTaskId === "string" && args.schedulerTaskId.trim()) return args.schedulerTaskId
+  if (action === "collect") {
+    throw new Error(
+      'schedulerTaskId is required for collect. Usage: scheduler({ action: "collect", schedulerTaskId }). Collect only after all intended worker records are written; check for cleanup/configDir mismatch if state is missing.',
+    )
+  }
   throw new Error("schedulerTaskId is required")
+}
+
+function schedulerTaskNotFoundMessage(action: string | undefined, schedulerTaskId: string) {
+  if (action === "record") {
+    return `Scheduler task ${schedulerTaskId} not found for record. Verify schedulerTaskId; do not pass a project repo path as configDir during normal Desktop/global use; scheduler state may have already been cleaned up. Normal scheduler state is under ~/.config/opencode/scheduler.`
+  }
+  if (action === "collect") {
+    return `Scheduler task ${schedulerTaskId} not found for collect. Usage: scheduler({ action: "collect", schedulerTaskId }). Collect only after all intended worker records are written; check for cleanup/configDir mismatch. Normal scheduler state is under ~/.config/opencode/scheduler.`
+  }
+  return `Scheduler task ${schedulerTaskId} not found`
+}
+
+function isLikelyWorkerRunTaskId(taskID: string, workerRunId: string) {
+  return taskID === workerRunId || taskID.includes(workerRunId) || /^scheduler-.+-worker-\d+$/.test(taskID)
 }
 
 function recalculateStatus(workers: WorkerRun[]): SchedulerTaskStatus {
