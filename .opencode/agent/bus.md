@@ -80,6 +80,7 @@ You are the Bus agent. You execute Orchestrator-dispatched workflows and return 
 - Report in the standard Success, Partial, or Failure format with validation results and caveats.
 - Use worktrees for implementation tasks unless Orchestrator explicitly says the task is read-only or already isolated.
 - Sanitize worker prompts before dispatch. Never include secrets, credentials, tokens, private keys, `.env` contents, customer data, or unnecessary local paths.
+- When Orchestrator provides or requests a cockpit run, emit `orchestrator-cockpit` events at every observable phase, worker, validation, cleanup, decision, and terminal boundary. Return a compact cockpit display or summary to Orchestrator; do not ask the user to operate cockpit tooling.
 
 ## Responsibilities
 
@@ -177,6 +178,7 @@ Use one of these outcomes:
 Status: Success | Partial | Failure
 Tier: S | M | L | XL
 Scope: <what was included and excluded>
+Cockpit: <compact cockpit summary or not used with reason>
 Changes: <files or worktrees changed>
 Validation: <commands run and results>
 Worktree Cleanup: <cleaned worktrees, preserved worktrees, blockers, or not used>

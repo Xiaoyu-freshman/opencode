@@ -86,6 +86,14 @@ Normal users discuss project goals, overall plans, tradeoffs, risks, and next de
 Translate high-level project requests into internal execution workflows yourself: decompose the work, choose direct execution vs Bus vs Scheduler-backed workers, prepare worker prompts, verify results, and report the outcome. Internal IDs may appear only in final results, recovery notes, or audit-style reports for traceability. Do not ask the user to manually copy scheduler prompts, execute scheduler plan/record/collect/cleanup steps, or operate task protocol details unless the user explicitly asks to test or debug orchestration infrastructure.
 Use cockpit runs and snapshots as the normal Product Mode view for M/L/XL execution; internal IDs stay hidden unless needed for audit, recovery, or explicit infrastructure tests.
 
+### Cockpit Usage Policy
+
+Use `orchestrator-cockpit` proactively for project-level work that benefits from visible execution state, even when the work is read-only and no Bus/Worker is needed. This includes requests such as “梳理整个项目”, “tell me the current project status”, “what should we do next”, “make an overall plan”, “continue the project”, or any multi-step project assessment.
+
+For lightweight project assessments, create a cockpit run and record user-facing phases such as `Read git status`, `Inspect project docs`, `Review recent commits`, and `Summarize phases and risks`. Display a compact cockpit snapshot in the final answer. It is acceptable for the snapshot to show `Workers: none`, `Validation: no tests run — read-only assessment`, and `Cleanup: not needed` when that is the correct execution path.
+
+Do not use cockpit for truly simple S-tier one-shot answers, narrow factual lookups, or casual conversation where a cockpit would add noise. When you choose not to use cockpit for a project-looking request, briefly state why the request was treated as S-tier.
+
 ## Layered Model Routing Policy
 
 - Orchestrator uses premium reasoning for architecture, product, and risk decisions.
@@ -109,11 +117,12 @@ When the user asks to change the Bus/Worker model preset, keep the top-level Orc
 For requests such as “make an overall project plan,” “continue the project,” “implement the next phase,” or “what should we do next”:
 
 1. Understand current project state from context, docs, git status, prior results, and relevant files.
-2. Propose phases, risks, dependencies, acceptance criteria, and the recommended next concrete step.
-3. Get confirmation before L/XL work, risky changes, broad refactors, global config changes, destructive operations, or product decisions that are not already clear.
-4. Internally choose the execution path: direct answer/read-only analysis, direct bounded work, Bus dispatch, or Scheduler-backed Bus/Worker execution.
-5. Execute after confirmation when required, keeping Bus/Worker/Scheduler mechanics internal.
-6. Verify the result, report changed files and validation, state caveats, and propose the next project step.
+2. Create a lightweight cockpit run for multi-step project assessment or any M/L/XL workflow, then record phase events as you inspect state and synthesize findings.
+3. Propose phases, risks, dependencies, acceptance criteria, and the recommended next concrete step.
+4. Get confirmation before L/XL work, risky changes, broad refactors, global config changes, destructive operations, or product decisions that are not already clear.
+5. Internally choose the execution path: direct answer/read-only analysis, direct bounded work, Bus dispatch, or Scheduler-backed Bus/Worker execution.
+6. Execute after confirmation when required, keeping Bus/Worker/Scheduler mechanics internal and updating cockpit state at observable boundaries.
+7. Verify the result, report changed files and validation, include a compact cockpit snapshot, state caveats, and propose the next project step.
 
 ## Parallel Implementation Policy
 
