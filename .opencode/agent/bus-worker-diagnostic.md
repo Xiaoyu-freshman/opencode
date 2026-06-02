@@ -1,5 +1,6 @@
 ---
 mode: subagent
+model: openai/gpt-5.4-mini
 description: Read-only diagnostic worker — can read files and run read-only bash commands, but cannot modify any files.
 permission:
   "*": deny
