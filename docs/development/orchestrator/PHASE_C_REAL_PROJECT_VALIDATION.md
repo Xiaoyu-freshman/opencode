@@ -32,13 +32,28 @@ Record formal Desktop/global Orchestrator validation of C2 Hybrid Scheduler afte
 | B | ski-video-review | Single worker read-only | Passed | `scheduler-mpw3llmq-y1x79r` | `scheduler-mpw3llmq-y1x79r-worker-1` / `ses_1798d1d49ffe1XYY30bYljEqGM` | Read-only diagnostics. |
 | C | snowflow | Multi-worker read-only | Passed | `scheduler-mpw42luf-2eowqb` | `scheduler-mpw42luf-2eowqb-worker-1` / `ses_17980fa86ffeFWj7fwbLUYbUoh`; `scheduler-mpw42luf-2eowqb-worker-2` / `ses_17980fa6dffeidPRATzE4JGi6m` | One initial collect parameter mistake; retry succeeded. Treat as UX/SOP caution, not product failure. |
 | D | ski-video-review | Multi-worker read-only | Passed | `scheduler-mpw4dc0e-hkkqsb` | `scheduler-mpw4dc0e-hkkqsb-worker-1` / `ses_179795508ffePX3p8zCpqj5KO2`; `scheduler-mpw4dc0e-hkkqsb-worker-2` / `ses_1797954ffffeEPF9a7lJ7QfDvz` | Read-only diagnostics. |
+| E | ski-video-review | Implementation worker + review worker in disposable worktree | Passed | `scheduler-mpw4xhr2-xvxyla` | `scheduler-mpw4xhr2-xvxyla-worker-1` / `ses_1796af171ffeQlLZjrx4xojyvP`; `scheduler-mpw4xhr2-xvxyla-worker-2` / `ses_1796af166ffe4aXr5syrrRdMGs` | Docs-only implementation smoke in disposable worktree. |
+
+## Test E details
+
+- Disposable worktree: `/Users/tom/Documents/Project/ski-video-review/.worktrees/ski-video-review-c2-implementation-smoke`
+- Branch: `codex/c2-implementation-smoke-20260602`
+- Implementation summary: created `docs/development/orchestrator-c2-implementation-smoke.md` only in the disposable worktree.
+- Review summary: PASS; confirmed only the expected markdown file changed in the disposable worktree; main workspace had no new tracked modifications.
+- Collect succeeded; scheduler marked completed and matched both completed workers.
+- Cleanup succeeded; removed scheduler state file only, with no worktrees or user files modified.
+- Safety: no secrets; no dangerous commands, installs, builds, tests, packaging, or services.
+- Main workspace had pre-existing untracked `docs/prompts/` and other prompt files; they were not created by this test.
+- Disposable worktree and branch were later cleaned up manually after user confirmation.
 
 ## Findings
 
 - Single-worker and multi-worker flows passed across both real projects.
+- A low-risk docs-only implementation-worker flow with review in a disposable worktree passed.
 - `workerRunId` values and built-in `ses_*` task/session ids stayed separated.
 - `collect` and scheduler-state-only `cleanup` succeeded.
-- Tests made no file modifications, did not access secrets, did not send real DingTalk messages, and did not run dangerous commands.
+- Main workspaces were not modified by the tests; Test E changed only the expected markdown file inside its disposable worktree.
+- Tests did not access secrets, did not send real DingTalk messages, and did not run dangerous commands.
 - `ski-video-review` had pre-existing untracked `docs/prompts/`; tests did not create it.
 - Test C exposed a collect-parameter UX/SOP caution, but retry succeeded and no product failure was observed.
 
@@ -62,11 +77,11 @@ For future Desktop/global Orchestrator C2 usage:
 
 ## Residual risks / not yet covered
 
-- Only read-only diagnostics were tested; implementation workers modifying code were not covered.
+- Implementation-worker coverage is limited to a low-risk docs-only smoke in a disposable worktree; real code or config changes were not covered.
 - Live cancellation, resume checkpoints, DAG behavior, and automatic worker launch semantics were not tested.
 - Concurrent stress beyond two workers was not tested.
 
 ## Recommended next steps
 
-- Keep C2 Hybrid Scheduler validated for read-only single-worker and multi-worker Desktop workflows.
-- Possible next phase: implementation-worker smoke test in a disposable worktree, improved scheduler UX/error messages, and optional C3 design.
+- Keep C2 Hybrid Scheduler validated for read-only single-worker, multi-worker, and docs-only implementation smoke Desktop workflows.
+- Possible next phase: stronger scheduler UX/error messages, implementation smoke with review/test in a disposable repo or worktree, and optional C3 design.
