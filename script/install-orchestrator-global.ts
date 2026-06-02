@@ -30,6 +30,7 @@ const requiredTools = [
   "worktree.ts",
   "scheduler.ts",
   "orchestrator-model-preset.ts",
+  "orchestrator-cockpit.ts",
   "orchestrator-health.ts",
 ]
 const lowerAgentFiles = new Set([

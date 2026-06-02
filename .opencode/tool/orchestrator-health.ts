@@ -1,7 +1,7 @@
 /// <reference path="../env.d.ts" />
 import { tool } from "@opencode-ai/plugin/tool"
 import { existsSync } from "fs"
-import { readFile, rm } from "fs/promises"
+import { cp, mkdir, readFile, rm } from "fs/promises"
 import { join } from "path"
 import { pathToFileURL } from "url"
 
@@ -28,6 +28,7 @@ export const requiredTools = [
   "worktree.ts",
   "scheduler.ts",
   "orchestrator-model-preset.ts",
+  "orchestrator-cockpit.ts",
   "orchestrator-health.ts",
 ]
 
@@ -186,10 +187,39 @@ async function smokeTools(configDir: string): Promise<Check[]> {
   checks.push(await smokeTool(configDir, "scheduler", { action: "status", configDir, schedulerTaskId: `${id}-scheduler` }, context))
   checks.push(await smokeTool(configDir, "scheduler", { action: "cleanup", configDir, schedulerTaskId: `${id}-scheduler` }, context))
   checks.push(await smokeTool(configDir, "orchestrator-model-preset", { action: "status", configDir }, context))
+  checks.push(await smokeCockpit(configDir, id))
 
   await rm(join(configDir, "tasks", `${id}-task.json`), { force: true }).catch(() => {})
   await rm(join(configDir, "scheduler", `${id}-scheduler.json`), { force: true }).catch(() => {})
   return checks
+}
+
+async function smokeCockpit(configDir: string, id: string): Promise<Check> {
+  const smokeConfigDir = join(configDir, "health-smoke", id)
+  const source = join(configDir, "tool", "orchestrator-cockpit.ts")
+  if (!existsSync(source)) {
+    return { name: "smoke orchestrator-cockpit", ok: false, message: "missing tool file", path: source }
+  }
+
+  await mkdir(smokeConfigDir, { recursive: true })
+  await cp(join(configDir, "tool"), join(smokeConfigDir, "tool"), { recursive: true })
+
+  try {
+    const context = smokeContext(smokeConfigDir, id)
+    const runID = `${id}-cockpit`
+    const checks = [
+      await smokeTool(smokeConfigDir, "orchestrator-cockpit", { action: "create", configDir: smokeConfigDir, runID, title: "Orchestrator health cockpit smoke", tier: "M" }, context),
+      await smokeTool(smokeConfigDir, "orchestrator-cockpit", { action: "event", configDir: smokeConfigDir, runID, eventType: "run.started", message: "health smoke" }, context),
+      await smokeTool(smokeConfigDir, "orchestrator-cockpit", { action: "status", configDir: smokeConfigDir, runID }, context),
+      await smokeTool(smokeConfigDir, "orchestrator-cockpit", { action: "display", configDir: smokeConfigDir, runID }, context),
+      await smokeTool(smokeConfigDir, "orchestrator-cockpit", { action: "complete", configDir: smokeConfigDir, runID, summary: "health smoke complete" }, context),
+    ]
+
+    const failed = checks.find((check) => !check.ok)
+    return failed ?? { name: "smoke orchestrator-cockpit", ok: true, message: "isolated smoke passed", path: smokeConfigDir }
+  } finally {
+    await rm(smokeConfigDir, { recursive: true, force: true }).catch(() => {})
+  }
 }
 
 async function smokeTool(configDir: string, name: string, args: Record<string, unknown>, context: ToolContext): Promise<Check> {
