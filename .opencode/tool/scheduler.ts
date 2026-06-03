@@ -1,7 +1,7 @@
 /// <reference path="../env.d.ts" />
 import { tool } from "@opencode-ai/plugin/tool"
 import { existsSync } from "fs"
-import { mkdir, readFile, rm, writeFile } from "fs/promises"
+import { mkdir, readFile, rename, rm, writeFile } from "fs/promises"
 import { join } from "path"
 
 type SchedulerTaskStatus = "planned" | "running" | "completed" | "failed" | "cancelled"
@@ -19,6 +19,7 @@ type WorkerRun = {
   taskID?: string
   resultSummary?: string
   error?: string
+  worktree?: string
   worktreePath?: string
   artifacts: string[]
   createdAt: string
@@ -137,12 +138,15 @@ async function plan(args: Record<string, unknown>, context: { directory: string 
     prompt: worker.prompt,
     status: "planned",
     acceptanceCriteria: worker.acceptanceCriteria.length > 0 ? worker.acceptanceCriteria : task.acceptanceCriteria,
+    worktree: worker.worktree,
     artifacts: [],
     createdAt: now,
     updatedAt: now,
   }))
 
-  await writeTask(args, task)
+  await withTaskLock(args, task.id, async () => {
+    await writeTask(args, task)
+  })
   return {
     success: true,
     schedulerTaskId: task.id,
@@ -153,6 +157,7 @@ async function plan(args: Record<string, unknown>, context: { directory: string 
         subagent_type: worker.subagent_type,
         description: worker.description,
         prompt: worker.prompt,
+        ...(worker.worktree ? { worktree: worker.worktree } : {}),
       },
       acceptanceCriteria: worker.acceptanceCriteria,
       recordInstruction:
@@ -172,6 +177,7 @@ async function status(args: Record<string, unknown>) {
       status: worker.status,
       taskID: worker.taskID,
       description: worker.description,
+      worktree: worker.worktree,
       worktreePath: worker.worktreePath,
     })),
     task,
@@ -181,44 +187,71 @@ async function status(args: Record<string, unknown>) {
 async function record(args: Record<string, unknown>) {
   if (typeof args.workerRunId !== "string") throw new Error("workerRunId is required for record")
   if (!isWorkerStatus(args.status)) throw new Error("status is required for record")
+  const workerRunId = args.workerRunId
+  const status = args.status
   if (typeof args.taskID === "string" && isLikelyWorkerRunTaskId(args.taskID, args.workerRunId)) {
     throw new Error(
       `Invalid record taskID ${args.taskID}: workerRunId is not built-in task_id. The built-in task_id/session id must be the actual ses_* id returned by the task tool. New worker launches should omit task_id; call the built-in task with taskCalls[i].taskArgs only.`,
     )
   }
 
-  const task = await readTask(args, "record")
-  const worker = task.workerRuns.find((item) => item.id === args.workerRunId)
-  if (!worker) throw new Error(`Worker run ${args.workerRunId} not found`)
+  return await withTaskLock(args, requireSchedulerTaskId(args, "record"), async () => {
+    const task = await readTask(args, "record")
+    const worker = task.workerRuns.find((item) => item.id === workerRunId)
+    if (!worker) throw new Error(`Worker run ${workerRunId} not found`)
+    if (isTerminalStatus(worker.status) || (worker.status === "running" && status === "planned")) {
+      return { success: true, schedulerTaskId: task.id, workerRunId: worker.id, status: recalculateStatus(task.workerRuns), task }
+    }
 
-  const now = new Date().toISOString()
-  worker.status = args.status
-  worker.taskID = typeof args.taskID === "string" ? args.taskID : worker.taskID
-  worker.resultSummary = typeof args.resultSummary === "string" ? args.resultSummary : worker.resultSummary
-  worker.error = typeof args.error === "string" ? args.error : worker.error
-  worker.worktreePath = typeof args.worktreePath === "string" ? args.worktreePath : worker.worktreePath
-  worker.artifacts = args.artifacts ? stringArray(args.artifacts) : worker.artifacts
-  worker.updatedAt = now
-  worker.completedAt = ["completed", "failed", "cancelled"].includes(args.status) ? now : worker.completedAt
-  task.status = recalculateStatus(task.workerRuns)
-  task.updatedAt = now
-  task.completedAt = ["completed", "failed", "cancelled"].includes(task.status) ? now : task.completedAt
-  task.events.push({ at: now, type: "record", message: `${worker.id} recorded as ${worker.status}` })
-  await writeTask(args, task)
+    const nextArtifacts = Array.isArray(args.artifacts) ? stringArray(args.artifacts) : worker.artifacts
+    const unchanged =
+      worker.status === status &&
+      (typeof args.taskID !== "string" || args.taskID === worker.taskID) &&
+      (typeof args.resultSummary !== "string" || args.resultSummary === worker.resultSummary) &&
+      (typeof args.error !== "string" || args.error === worker.error) &&
+      (typeof args.worktreePath !== "string" || args.worktreePath === worker.worktreePath) &&
+      nextArtifacts.length === worker.artifacts.length &&
+      nextArtifacts.every((artifact, index) => artifact === worker.artifacts[index])
+    if (unchanged) {
+      return { success: true, schedulerTaskId: task.id, workerRunId: worker.id, status: recalculateStatus(task.workerRuns), task }
+    }
 
-  return { success: true, schedulerTaskId: task.id, workerRunId: worker.id, status: task.status, task }
+    const now = new Date().toISOString()
+    worker.status = status
+    worker.taskID = typeof args.taskID === "string" ? args.taskID : worker.taskID
+    worker.resultSummary = typeof args.resultSummary === "string" ? args.resultSummary : worker.resultSummary
+    worker.error = typeof args.error === "string" ? args.error : worker.error
+    worker.worktreePath = typeof args.worktreePath === "string" ? args.worktreePath : worker.worktreePath
+    worker.artifacts = nextArtifacts
+    worker.updatedAt = now
+    worker.completedAt = isTerminalStatus(status) ? now : worker.completedAt
+    task.status = recalculateStatus(task.workerRuns)
+    task.updatedAt = now
+    task.completedAt = isTerminalStatus(task.status) ? now : task.completedAt
+    task.events.push({ at: now, type: "record", message: `${worker.id} recorded as ${worker.status}` })
+    await writeTask(args, task)
+
+    return { success: true, schedulerTaskId: task.id, workerRunId: worker.id, status: task.status, task }
+  })
 }
 
 async function collect(args: Record<string, unknown>) {
   const task = await readTask(args, "collect")
+  const status = recalculateStatus(task.workerRuns)
   return {
     success: true,
     schedulerTaskId: task.id,
-    status: task.status,
+    status,
     requiresOrchestratorVerification: true,
     summary: {
       title: task.title,
       tier: task.tier,
+      workerCounts: Object.fromEntries(
+        taskStatuses.map((workerStatus) => [
+          workerStatus,
+          task.workerRuns.filter((worker) => worker.status === workerStatus).length,
+        ]),
+      ),
       acceptanceCriteria: task.acceptanceCriteria,
       validationCommands: task.validationCommands,
       workers: task.workerRuns.map((worker) => ({
@@ -227,6 +260,7 @@ async function collect(args: Record<string, unknown>) {
         taskID: worker.taskID,
         resultSummary: worker.resultSummary,
         error: worker.error,
+        worktree: worker.worktree,
         worktreePath: worker.worktreePath,
         artifacts: worker.artifacts,
       })),
@@ -236,25 +270,27 @@ async function collect(args: Record<string, unknown>) {
 }
 
 async function cancel(args: Record<string, unknown>) {
-  const task = await readTask(args)
-  const now = new Date().toISOString()
-  task.status = "cancelled"
-  task.updatedAt = now
-  task.completedAt = now
-  task.workerRuns = task.workerRuns.map((worker) =>
-    ["completed", "failed", "cancelled"].includes(worker.status)
-      ? worker
-      : { ...worker, status: "cancelled", updatedAt: now, completedAt: now },
-  )
-  task.events.push({ at: now, type: "cancelled", message: "Scheduler state marked cancelled; no subagents were interrupted" })
-  await writeTask(args, task)
-  return { success: true, schedulerTaskId: task.id, status: task.status, task }
+  return await withTaskLock(args, requireSchedulerTaskId(args), async () => {
+    const task = await readTask(args)
+    const now = new Date().toISOString()
+    task.status = "cancelled"
+    task.updatedAt = now
+    task.completedAt = now
+    task.workerRuns = task.workerRuns.map((worker) =>
+      isTerminalStatus(worker.status) ? worker : { ...worker, status: "cancelled", updatedAt: now, completedAt: now },
+    )
+    task.events.push({ at: now, type: "cancelled", message: "Scheduler state marked cancelled; no subagents were interrupted" })
+    await writeTask(args, task)
+    return { success: true, schedulerTaskId: task.id, status: task.status, task }
+  })
 }
 
 async function cleanup(args: Record<string, unknown>) {
   const schedulerTaskId = requireSchedulerTaskId(args)
   if (!safeId(schedulerTaskId)) throw new Error("schedulerTaskId contains unsupported characters")
-  await rm(taskPath(args, schedulerTaskId), { force: true })
+  await withTaskLock(args, schedulerTaskId, async () => {
+    await rm(taskPath(args, schedulerTaskId), { force: true })
+  })
   return {
     success: true,
     schedulerTaskId,
@@ -271,6 +307,7 @@ function normalizeWorkers(value: unknown) {
         subagent_type: item,
         description: item,
         prompt: item,
+        worktree: undefined,
         acceptanceCriteria: [],
       }
     }
@@ -291,6 +328,7 @@ function normalizeWorkers(value: unknown) {
       subagent_type: workerType,
       description,
       prompt,
+      worktree: stringField(item, "worktree") ?? stringField(item, "worktreePath"),
       acceptanceCriteria: stringArray(item.acceptanceCriteria),
     }
   })
@@ -307,7 +345,40 @@ async function readTask(args: Record<string, unknown>, action?: string) {
 async function writeTask(args: Record<string, unknown>, task: SchedulerTask) {
   if (!safeId(task.id)) throw new Error("schedulerTaskId contains unsupported characters")
   await mkdir(stateDir(args), { recursive: true })
-  await writeFile(taskPath(args, task.id), JSON.stringify(task, null, 2))
+  const path = taskPath(args, task.id)
+  const tempPath = join(
+    stateDir(args),
+    `.${task.id}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`,
+  )
+  try {
+    await writeFile(tempPath, `${JSON.stringify(task, null, 2)}\n`)
+    await rename(tempPath, path)
+  } catch (error) {
+    await rm(tempPath, { force: true })
+    throw error
+  }
+}
+
+async function withTaskLock<T>(args: Record<string, unknown>, schedulerTaskId: string, run: () => Promise<T>) {
+  if (!safeId(schedulerTaskId)) throw new Error("schedulerTaskId contains unsupported characters")
+  const lockPath = `${taskPath(args, schedulerTaskId)}.lock`
+  const startedAt = Date.now()
+  await mkdir(stateDir(args), { recursive: true })
+  while (true) {
+    try {
+      await mkdir(lockPath)
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error
+      if (Date.now() - startedAt > 10_000) throw new Error(`Timed out waiting for scheduler state lock ${lockPath}`)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      continue
+    }
+    try {
+      return await run()
+    } finally {
+      await rm(lockPath, { recursive: true, force: true })
+    }
+  }
 }
 
 function stateDir(args: Record<string, unknown>) {
@@ -343,10 +414,11 @@ function isLikelyWorkerRunTaskId(taskID: string, workerRunId: string) {
 }
 
 function recalculateStatus(workers: WorkerRun[]): SchedulerTaskStatus {
-  if (workers.every((worker) => worker.status === "cancelled")) return "cancelled"
+  if (workers.every((worker) => worker.status === "planned")) return "planned"
   if (workers.some((worker) => worker.status === "running")) return "running"
-  if (workers.some((worker) => ["completed", "failed", "cancelled"].includes(worker.status)) && workers.some((worker) => worker.status === "planned")) return "running"
+  if (workers.some((worker) => worker.status === "planned")) return "running"
   if (workers.some((worker) => worker.status === "failed")) return "failed"
+  if (workers.some((worker) => worker.status === "cancelled")) return "cancelled"
   if (workers.every((worker) => worker.status === "completed")) return "completed"
   return "planned"
 }
@@ -371,10 +443,18 @@ function isWorkerStatus(value: unknown): value is WorkerRunStatus {
   return value === "planned" || value === "running" || value === "completed" || value === "failed" || value === "cancelled"
 }
 
+function isTerminalStatus(value: WorkerRunStatus | SchedulerTaskStatus) {
+  return value === "completed" || value === "failed" || value === "cancelled"
+}
+
 function safeId(value: string) {
   return /^[a-zA-Z0-9_.-]+$/.test(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function errorCode(value: unknown) {
+  return isRecord(value) && typeof value.code === "string" ? value.code : undefined
 }

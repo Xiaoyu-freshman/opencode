@@ -204,6 +204,7 @@ describe("real orchestrator project tools", () => {
             subagent_type: "bus-worker-diagnostic",
             description: "Real scheduler smoke worker",
             prompt: "Validate scheduler state only.",
+            worktree: "/tmp/real-scheduler-worker-worktree",
           },
         ],
       }),
@@ -217,6 +218,7 @@ describe("real orchestrator project tools", () => {
         subagent_type: "bus-worker-diagnostic",
         description: "Real scheduler smoke worker",
         prompt: "Validate scheduler state only.",
+        worktree: "/tmp/real-scheduler-worker-worktree",
       },
     })
     expect(schedulerPlan.taskCalls[0].taskArgs.task_id).toBeUndefined()

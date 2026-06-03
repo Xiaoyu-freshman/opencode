@@ -14,6 +14,8 @@ import { Cause, Effect, Exit, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
+import { InstanceState } from "@/effect/instance-state"
+import { InstanceRef } from "@/effect/instance-ref"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -130,6 +132,7 @@ export const TaskTool = Tool.define(
           metadata: {
             description: params.description,
             subagent_type: params.subagent_type,
+            ...(params.worktree ? { worktree: params.worktree } : {}),
           },
         })
       }
@@ -143,6 +146,7 @@ export const TaskTool = Tool.define(
         ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
       const parent = yield* sessions.get(ctx.sessionID)
+      const parentContext = yield* InstanceState.context
       const parentAgent = parent.agent
         ? yield* agent.get(parent.agent).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
@@ -165,6 +169,18 @@ export const TaskTool = Tool.define(
             })) ?? []),
           ],
         }))
+      const taskWorktree =
+        params.worktree ??
+        (nextSession.path === "" && nextSession.directory !== parentContext.directory
+          ? nextSession.directory
+          : undefined)
+      const taskContext = taskWorktree
+        ? {
+            ...parentContext,
+            directory: params.worktree ?? nextSession.directory,
+            worktree: taskWorktree,
+          }
+        : undefined
 
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(
         Effect.provideService(Database.Service, database),
@@ -180,6 +196,7 @@ export const TaskTool = Tool.define(
         parentSessionId: ctx.sessionID,
         sessionId: nextSession.id,
         model,
+        ...(taskWorktree ? { worktree: taskWorktree } : {}),
         ...(runInBackground ? { background: true } : {}),
       }
 
@@ -210,6 +227,8 @@ export const TaskTool = Tool.define(
         })
         return result.parts.findLast((item) => item.type === "text")?.text ?? ""
       })
+      const runTaskInContext = () =>
+        taskContext ? runTask().pipe(Effect.provideService(InstanceRef, taskContext)) : runTask()
 
       const inject = Effect.fn("TaskTool.injectBackgroundResult")(function* (
         state: "completed" | "error",
@@ -247,7 +266,7 @@ export const TaskTool = Tool.define(
           type: id,
           title: params.description,
           metadata,
-          run: runTask().pipe(
+          run: runTaskInContext().pipe(
             Effect.tap((text) => inject("completed", text).pipe(Effect.ignore)),
             Effect.catchCause((cause) =>
               (Cause.hasInterruptsOnly(cause)
@@ -281,7 +300,7 @@ export const TaskTool = Tool.define(
         }),
         () =>
           Effect.gen(function* () {
-            const text = yield* runTask()
+            const text = yield* runTaskInContext()
             return {
               title: params.description,
               metadata,

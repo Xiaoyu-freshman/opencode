@@ -759,7 +759,7 @@ export const layer: Layer.Layer<
       return yield* createNext({
         parentID: input?.parentID,
         directory: input?.worktree ?? ctx.directory,
-        path: sessionPath(input?.worktree ?? ctx.worktree, ctx.directory),
+        path: sessionPath(input?.worktree ?? ctx.worktree, input?.worktree ?? ctx.directory),
         title: input?.title,
         agent: input?.agent,
         model: input?.model,

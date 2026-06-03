@@ -38,6 +38,7 @@ describe("scheduler tool", () => {
                 subagent_type: "bus-worker-diagnostic",
                 description: "Inspect scheduler behavior",
                 prompt: "Inspect scheduler behavior and report back.",
+                worktree: "/tmp/scheduler-worker-worktree",
               },
               {
                 subagent_type: "bus-worker-implementation",
@@ -61,16 +62,19 @@ describe("scheduler tool", () => {
           subagent_type: "bus-worker-diagnostic",
           description: "Inspect scheduler behavior",
           prompt: "Inspect scheduler behavior and report back.",
+          worktree: "/tmp/scheduler-worker-worktree",
         },
         acceptanceCriteria: ["worker reports result"],
       })
       expect(planned.taskCalls[0].taskArgs.task_id).toBeUndefined()
       expect(planned.taskCalls[0].recordInstruction).toContain("workerRunId")
+      expect(planned.task.workerRuns[0].worktree).toBe("/tmp/scheduler-worker-worktree")
       expect(existsSync(join(configDir, "scheduler", `${schedulerTaskId}.json`))).toBe(true)
 
       const initialStatus = parseJsonOutput(await scheduler.execute({ action: "status", configDir, schedulerTaskId }, context))
       expect(initialStatus).toMatchObject({ success: true, status: "planned" })
       expect(initialStatus.workers).toHaveLength(2)
+      expect(initialStatus.workers[0].worktree).toBe("/tmp/scheduler-worker-worktree")
 
       const recorded = parseJsonOutput(
         await scheduler.execute(
@@ -205,6 +209,169 @@ describe("scheduler tool", () => {
         taskID: "scheduler-other-worker-2",
       })
       expect(shapedError).toContain("workerRunId is not built-in task_id")
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test("records concurrent worker results and keeps terminal duplicates idempotent", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "opencode-scheduler-concurrent-record-"))
+    const schedulerTaskId = "scheduler-concurrent-record"
+
+    try {
+      await scheduler.execute(
+        {
+          action: "plan",
+          configDir,
+          schedulerTaskId,
+          title: "Scheduler concurrent record",
+          workers: Array.from({ length: 6 }, (_, index) => ({
+            subagent_type: "bus-worker-diagnostic",
+            description: `Concurrent worker ${index + 1}`,
+            prompt: `Record worker ${index + 1}.`,
+          })),
+        },
+        context,
+      )
+
+      await Promise.all(
+        ([
+          {
+            worker: 1,
+            status: "completed",
+            taskID: "ses_concurrent_1",
+            resultSummary: "worker 1 complete",
+            artifacts: ["worker-1.md"],
+          },
+          {
+            worker: 2,
+            status: "completed",
+            taskID: "ses_concurrent_2",
+            resultSummary: "worker 2 complete",
+            artifacts: ["worker-2.md"],
+          },
+          {
+            worker: 3,
+            status: "failed",
+            taskID: "ses_concurrent_3",
+            error: "worker 3 failed",
+            artifacts: ["worker-3.log"],
+          },
+          {
+            worker: 4,
+            status: "cancelled",
+            taskID: "ses_concurrent_4",
+            resultSummary: "worker 4 cancelled",
+          },
+          {
+            worker: 5,
+            status: "running",
+            taskID: "ses_concurrent_5",
+            resultSummary: "worker 5 running",
+          },
+          {
+            worker: 1,
+            status: "completed",
+            taskID: "ses_concurrent_1",
+            resultSummary: "worker 1 complete",
+            artifacts: ["worker-1.md"],
+          },
+          {
+            worker: 3,
+            status: "failed",
+            taskID: "ses_concurrent_3",
+            error: "worker 3 failed",
+            artifacts: ["worker-3.log"],
+          },
+        ] satisfies {
+          worker: number
+          status: "planned" | "running" | "completed" | "failed" | "cancelled"
+          taskID: string
+          resultSummary?: string
+          error?: string
+          artifacts?: string[]
+        }[]).map((record) =>
+          scheduler.execute(
+            {
+              action: "record",
+              configDir,
+              schedulerTaskId,
+              workerRunId: `${schedulerTaskId}-worker-${record.worker}`,
+              status: record.status,
+              taskID: record.taskID,
+              resultSummary: record.resultSummary,
+              error: record.error,
+              artifacts: record.artifacts,
+            },
+            context,
+          ),
+        ),
+      )
+
+      const collected = parseJsonOutput(await scheduler.execute({ action: "collect", configDir, schedulerTaskId }, context))
+      expect(collected).toMatchObject({ success: true, status: "running" })
+      expect(collected.summary.workerCounts).toEqual({
+        planned: 1,
+        running: 1,
+        completed: 2,
+        failed: 1,
+        cancelled: 1,
+      })
+      const collectedWorkers = collected.summary.workers as {
+        workerRunId: string
+        status: string
+        taskID?: string
+        resultSummary?: string
+        error?: string
+        artifacts: string[]
+      }[]
+      expect(collectedWorkers.map((worker) => worker.status).sort()).toEqual([
+        "cancelled",
+        "completed",
+        "completed",
+        "failed",
+        "planned",
+        "running",
+      ])
+      expect(collectedWorkers.find((worker) => worker.workerRunId === `${schedulerTaskId}-worker-1`)).toMatchObject({
+        taskID: "ses_concurrent_1",
+        resultSummary: "worker 1 complete",
+        artifacts: ["worker-1.md"],
+      })
+      expect(collectedWorkers.find((worker) => worker.workerRunId === `${schedulerTaskId}-worker-3`)).toMatchObject({
+        taskID: "ses_concurrent_3",
+        error: "worker 3 failed",
+        artifacts: ["worker-3.log"],
+      })
+      expect(collected.summary.events.filter((event: { type: string }) => event.type === "record")).toHaveLength(5)
+
+      await scheduler.execute(
+        {
+          action: "record",
+          configDir,
+          schedulerTaskId,
+          workerRunId: `${schedulerTaskId}-worker-1`,
+          status: "completed",
+          taskID: "ses_duplicate_should_not_replace",
+          resultSummary: "duplicate should not replace terminal result",
+          artifacts: ["duplicate.md"],
+        },
+        context,
+      )
+
+      const recollected = parseJsonOutput(await scheduler.execute({ action: "collect", configDir, schedulerTaskId }, context))
+      const recollectedWorkers = recollected.summary.workers as {
+        workerRunId: string
+        taskID?: string
+        resultSummary?: string
+        artifacts: string[]
+      }[]
+      expect(recollectedWorkers.find((worker) => worker.workerRunId === `${schedulerTaskId}-worker-1`)).toMatchObject({
+        taskID: "ses_concurrent_1",
+        resultSummary: "worker 1 complete",
+        artifacts: ["worker-1.md"],
+      })
+      expect(recollected.summary.events.filter((event: { type: string }) => event.type === "record")).toHaveLength(5)
     } finally {
       await rm(configDir, { recursive: true, force: true })
     }

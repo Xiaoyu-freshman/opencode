@@ -18,7 +18,8 @@ import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { disposeAllInstances } from "../fixture/fixture"
+import { InstanceRef } from "@/effect/instance-ref"
+import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 
@@ -375,6 +376,71 @@ describe("tool.task", () => {
       expect(result.metadata.sessionId).not.toBe("ses_missing")
       expect(result.output).toContain(`<task id="${result.metadata.sessionId}" state="completed">`)
       expect(seen?.sessionID).toBe(result.metadata.sessionId)
+    }),
+  )
+
+  it.instance("execute runs the child prompt in the requested worktree context", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const test = yield* TestInstance
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const worktree = `${test.directory}-worker-worktree`
+      let resolveDirectory: string | undefined
+      let resolveWorktree: string | undefined
+      let promptDirectory: string | undefined
+      let promptWorktree: string | undefined
+      let toolMetadata: unknown
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) =>
+          Effect.gen(function* () {
+            const ctx = yield* InstanceRef
+            resolveDirectory = ctx?.directory
+            resolveWorktree = ctx?.worktree
+            return [{ type: "text" as const, text: template }]
+          }),
+        prompt: (input) =>
+          Effect.gen(function* () {
+            const ctx = yield* InstanceRef
+            promptDirectory = ctx?.directory
+            promptWorktree = ctx?.worktree
+            return reply(input, "worktree done")
+          }),
+      }
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+          worktree,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: (input) =>
+            Effect.sync(() => {
+              toolMetadata = input.metadata
+            }),
+          ask: () => Effect.void,
+        },
+      )
+
+      const child = yield* sessions.get(result.metadata.sessionId)
+      expect(child.directory).toBe(worktree)
+      expect(child.path).toBe("")
+      expect(result.metadata.worktree).toBe(worktree)
+      expect(toolMetadata).toMatchObject({ worktree })
+      expect(resolveDirectory).toBe(worktree)
+      expect(resolveWorktree).toBe(worktree)
+      expect(promptDirectory).toBe(worktree)
+      expect(promptWorktree).toBe(worktree)
     }),
   )
 
