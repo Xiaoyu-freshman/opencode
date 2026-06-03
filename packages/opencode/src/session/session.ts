@@ -475,6 +475,7 @@ export interface Interface {
     metadata?: typeof Metadata.Type
     permission?: PermissionLegacy.Ruleset
     workspaceID?: WorkspaceV2.ID
+    worktree?: string
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -751,13 +752,14 @@ export const layer: Layer.Layer<
       metadata?: typeof Metadata.Type
       permission?: PermissionLegacy.Ruleset
       workspaceID?: WorkspaceV2.ID
+      worktree?: string
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
       return yield* createNext({
         parentID: input?.parentID,
-        directory: ctx.directory,
-        path: sessionPath(ctx.worktree, ctx.directory),
+        directory: input?.worktree ?? ctx.directory,
+        path: sessionPath(input?.worktree ?? ctx.worktree, ctx.directory),
         title: input?.title,
         agent: input?.agent,
         model: input?.model,

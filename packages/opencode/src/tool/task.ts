@@ -42,6 +42,10 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
+  worktree: Schema.optional(Schema.String).annotate({
+    description:
+      "Worktree path for the subagent to operate in. Sets the subagent's working directory and scopes file access to this path.",
+  }),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)
@@ -147,6 +151,7 @@ export const TaskTool = Tool.define(
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
+          worktree: params.worktree,
           permission: [
             ...deriveSubagentSessionPermission({
               parentSessionPermission: parent.permission ?? [],

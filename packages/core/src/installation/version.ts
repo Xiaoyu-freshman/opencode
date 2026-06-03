@@ -6,3 +6,5 @@ declare global {
 export const InstallationVersion = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
 export const InstallationChannel = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
 export const InstallationLocal = InstallationChannel === "local"
+export const dependencyVersion = (version: string) => (version === "local" ? undefined : version)
+export const InstallationDependencyVersion = dependencyVersion(InstallationVersion)
