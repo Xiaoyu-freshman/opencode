@@ -58,6 +58,7 @@ import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
 import { readPartText } from "./message-part-text"
+import { ORCHESTRATOR_COCKPIT_TOOL, toolPartRenderable } from "./message-part-visibility"
 
 async function writeClipboard(text: string): Promise<boolean> {
   const body = typeof document === "undefined" ? undefined : document.body
@@ -501,7 +502,6 @@ function taskSession(
 }
 
 const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
-const HIDDEN_TOOLS = new Set(["todowrite"])
 
 function list<T>(value: T[] | undefined | null, fallback: T[]) {
   if (Array.isArray(value)) return value
@@ -606,9 +606,7 @@ function index<T extends { id: string }>(items: readonly T[]) {
 
 export function renderable(part: PartType, showReasoningSummaries = true) {
   if (part.type === "tool") {
-    if (HIDDEN_TOOLS.has(part.tool)) return false
-    if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
-    return true
+    return toolPartRenderable(part)
   }
   if (part.type === "text") return !!part.text?.trim()
   if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
@@ -623,6 +621,28 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
 export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
   return toolDefaultOpen(part.tool, shell, edit)
+}
+
+function cockpitDisplayLines(output: string | undefined) {
+  if (!output) return []
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+}
+
+function cockpitLineKind(line: string) {
+  if (line === "Phases" || line === "Workers" || line === "Validation" || line === "Cleanup" || line === "Decisions")
+    return "heading"
+  if (line.startsWith("Status:") || line.startsWith("Scope:") || line.startsWith("Summary:")) return "meta"
+  return "item"
+}
+
+function cockpitDisplaySummary(output: string | undefined) {
+  const lines = cockpitDisplayLines(output)
+  const title = lines[0] ?? "Orchestrator cockpit"
+  const status = lines.find((line) => line.startsWith("Status:"))
+  return { title, status }
 }
 
 export function AssistantParts(props: {
@@ -2385,6 +2405,45 @@ ToolRegistry.register({
           </div>
         </Show>
       </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: ORCHESTRATOR_COCKPIT_TOOL,
+  render(props) {
+    const summary = createMemo(() => cockpitDisplaySummary(props.output))
+    const lines = createMemo(() => cockpitDisplayLines(props.output))
+    const trigger = createMemo(() => {
+      const item = summary()
+      return {
+        title: "Cockpit",
+        subtitle: item.title,
+        args: item.status ? [item.status] : [],
+      }
+    })
+
+    return (
+      <div data-component="orchestrator-cockpit-tool">
+        <BasicTool
+          {...props}
+          defaultOpen={props.defaultOpen ?? true}
+          icon="status"
+          trigger={trigger()}
+        >
+          <Show when={lines().length > 0}>
+            <div data-component="orchestrator-cockpit-output">
+              <For each={lines()}>
+                {(line) => (
+                  <div data-slot="orchestrator-cockpit-line" data-kind={cockpitLineKind(line)}>
+                    {line}
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </BasicTool>
+      </div>
     )
   },
 })

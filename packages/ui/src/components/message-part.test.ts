@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import type { ToolPart } from "@opencode-ai/sdk/v2"
+import { toolPartRenderable } from "./message-part-visibility"
 import { readPartText } from "./message-part-text"
 
 describe("readPartText", () => {
@@ -26,3 +28,55 @@ describe("readPartText", () => {
     expect(readPartText(undefined, { id: "part_1", text: "\n  body  \n" })).toBe("body")
   })
 })
+
+describe("renderable", () => {
+  test("hides internal orchestrator cockpit events", () => {
+    expect(toolPartRenderable(cockpitToolPart("event"))).toBe(false)
+    expect(toolPartRenderable(cockpitToolPart("create"))).toBe(false)
+    expect(toolPartRenderable(cockpitToolPart("complete"))).toBe(false)
+    expect(toolPartRenderable(cockpitToolPart("status"))).toBe(false)
+  })
+
+  test("shows orchestrator cockpit display output", () => {
+    expect(toolPartRenderable(cockpitToolPart("display"))).toBe(true)
+  })
+
+  test("shows orchestrator cockpit errors", () => {
+    expect(toolPartRenderable(cockpitToolPart("event", "error"))).toBe(true)
+  })
+})
+
+function cockpitToolPart(action: string, status: "completed" | "error" = "completed"): ToolPart {
+  const base = {
+    id: `part_${action}_${status}`,
+    sessionID: "ses_test",
+    messageID: "msg_test",
+    type: "tool",
+    callID: `call_${action}_${status}`,
+    tool: "orchestrator-cockpit",
+  } satisfies Omit<ToolPart, "state">
+
+  if (status === "error") {
+    return {
+      ...base,
+      state: {
+        status,
+        input: { action },
+        error: "failed",
+        time: { start: 1, end: 2 },
+      },
+    } satisfies ToolPart
+  }
+
+  return {
+    ...base,
+    state: {
+      status,
+      input: { action },
+      output: "Current run\nStatus: completed",
+      title: "completed",
+      metadata: {},
+      time: { start: 1, end: 2 },
+    },
+  } satisfies ToolPart
+}
